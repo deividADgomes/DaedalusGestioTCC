@@ -1,0 +1,100 @@
+{% extends 'Daedalus/Base.html' %}
+{% load static %}
+
+{% block title %}Daedalus Gestio - Dashboard{% endblock %}
+
+{% block header %}
+<div class="flex flex-col md:flex-row md:items-center justify-between w-full gap-4">
+    <div>
+        <h1 class="text-2xl font-bold text-white">Dashboard de Performance</h1>
+        <p class="text-xs text-cyan-500 font-bold uppercase mt-1">Inteligência e Métricas</p>
+    </div>
+    
+    <div class="flex items-center gap-3 bg-[#1e293b] p-2 rounded-lg border border-[#334155]">
+        <input type="date" id="filtro-inicio" class="bg-[#0f172a] border-none text-xs text-slate-300 rounded p-1 outline-none">
+        <span class="text-slate-500">até</span>
+        <input type="date" id="filtro-fim" class="bg-[#0f172a] border-none text-xs text-slate-300 rounded p-1 outline-none">
+        <button id="btn-filtrar" class="bg-cyan-600 hover:bg-cyan-500 text-white text-[10px] font-bold px-3 py-1.5 rounded transition-all uppercase">Filtrar</button>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 bg-[#0f172a]">
+    
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="bg-[#1e293b] p-5 rounded-xl border border-[#334155] flex flex-col justify-center">
+            <p class="text-[10px] text-slate-400 font-bold uppercase mb-1">Volume Total de Triagens</p>
+            <h3 id="kpi-total" class="text-3xl font-bold text-white">--</h3>
+        </div>
+        
+        <div class="bg-gradient-to-br from-indigo-900/40 to-[#1e293b] p-5 rounded-xl border border-indigo-500/30 flex flex-col justify-center">
+            <p class="text-[10px] text-indigo-400 font-bold uppercase mb-1">Cliente Nº 1</p>
+            <h3 id="kpi-cliente-nome" class="text-xl font-bold text-white truncate">--</h3>
+            <p id="kpi-cliente-equip" class="text-[10px] text-slate-300 mt-2 truncate">Equipamento: <span class="font-bold text-white">--</span></p>
+            <p id="kpi-cliente-defeito" class="text-[10px] text-rose-300 truncate">Pior Defeito: <span class="font-bold">--</span></p>
+        </div>
+
+        <div class="bg-[#1e293b] p-5 rounded-xl border border-[#334155] flex flex-col justify-center">
+            <p class="text-[10px] text-amber-400 font-bold uppercase mb-1">Peça Mais Substituída</p>
+            <h3 id="kpi-peca-nome" class="text-xl font-bold text-white truncate">--</h3>
+            <p id="kpi-peca-modelo" class="text-[10px] text-amber-200 mt-1 truncate">Modelo: <span class="font-bold">--</span></p>
+            <p id="kpi-peca-qtd" class="text-[10px] text-slate-500 mt-1">-- trocas efetuadas</p>
+        </div>
+
+        <div class="bg-[#1e293b] p-5 rounded-xl border border-[#334155] flex flex-col justify-center">
+            <p class="text-[10px] text-rose-500 font-bold uppercase mb-1">Total de Erros Encontrados</p>
+            <h3 id="kpi-erros" class="text-3xl font-bold text-white">--</h3>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div class="bg-[#1e293b] p-6 rounded-xl border border-[#334155] flex flex-col h-[350px]">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xs text-slate-400 font-bold uppercase">Ranking de Técnicos</h2>
+                <select id="toggle-tecnico" class="bg-[#0f172a] text-[10px] text-cyan-400 border border-cyan-900 rounded px-2 py-1 outline-none">
+                    <option value="erros">Piores (Erros)</option>
+                    <option value="sucessos">Melhores (Sucessos)</option>
+                </select>
+            </div>
+            <div class="flex-1 min-h-0"><canvas id="chartTecnicos"></canvas></div>
+        </div>
+
+        <div class="bg-[#1e293b] p-6 rounded-xl border border-[#334155] flex flex-col h-[350px]">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xs text-slate-400 font-bold uppercase">Produtividade de Analistas</h2>
+                <select id="toggle-analista" class="bg-[#0f172a] text-[10px] text-purple-400 border border-purple-900 rounded px-2 py-1 outline-none">
+                    <option value="total">Ver Todos</option>
+                    <option value="erros">Com Defeito</option>
+                    <option value="sucessos">Funcionais</option>
+                </select>
+            </div>
+            <div class="flex-1 min-h-0"><canvas id="chartAnalistas"></canvas></div>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div class="bg-[#1e293b] p-6 rounded-xl border border-[#334155] flex flex-col h-[300px]">
+            <h2 class="text-xs text-slate-400 font-bold uppercase mb-4 text-center">Status Geral</h2>
+            <div class="flex-1 min-h-0 flex items-center justify-center"><canvas id="chartStatus"></canvas></div>
+        </div>
+
+        <div class="bg-[#1e293b] p-6 rounded-xl border border-[#334155] flex flex-col h-[300px]">
+            <h2 class="text-xs text-slate-400 font-bold uppercase mb-4">Top Clientes: Funcional vs Erro</h2>
+            <div class="flex-1 min-h-0"><canvas id="chartClientes"></canvas></div>
+        </div>
+
+        <div class="bg-[#1e293b] p-6 rounded-xl border border-[#334155] flex flex-col h-[300px]">
+            <h2 class="text-xs text-slate-400 font-bold uppercase mb-4">Top Peças Consumidas / Modelo</h2>
+            <div class="flex-1 min-h-0"><canvas id="chartPecas"></canvas></div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script src="{% static 'Daedalus/Dashboard/dashboard.js' %}" defer></script>
+{% endblock %}

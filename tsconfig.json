@@ -1,0 +1,13 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",             /* Traduz para um JavaScript moderno suportado por todos os navegadores atuais */
+    "lib": ["DOM", "ES2020"],       /* Diz ao TS que temos 'document', 'window' e 'Promises' nativas */
+    "module": "CommonJS",
+    "rootDir": "./",                /* Onde estão seus arquivos .ts */
+    "strict": true,                 /* Mantém as validações rigorosas de segurança do código */
+    "noImplicitAny": false,         /* Facilita a transição permitindo variáveis 'any' temporárias */
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true
+  }
+}

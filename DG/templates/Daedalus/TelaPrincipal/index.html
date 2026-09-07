@@ -1,0 +1,189 @@
+{% extends 'Daedalus/Base.html' %}
+{% load static %}
+{% block title %}Daedalus Gestio - Triagem{% endblock %}
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'Daedalus/TelaPrincipal/styles.css' %}">
+
+{% endblock %}
+{% block header %}
+<div class="flex items-center justify-between w-full pr-4">
+
+    <div>
+        <h1 class="text-2xl font-bold text-white">Registro de Triagem</h1>
+        <p class="text-xs text-cyan-500 font-medium tracking-wide uppercase mt-1">Análise Técnica</p>
+    </div>
+
+    <div class="flex items-center gap-3">
+        <button type="button" id="btn-limpar"
+            class="px-5 py-2 rounded-md text-sm font-semibold text-slate-300 bg-slate-800 hover:bg-slate-700 transition-colors">
+            Limpar
+        </button>
+        <button type="button" id="btn-salvar"
+            class="px-6 py-2 rounded-md text-sm font-semibold text-white bg-cyan-600 hover:bg-cyan-500 shadow-[0_0_15px_rgba(6,182,212,0.4)] hover:shadow-[0_0_25px_rgba(6,182,212,0.6)] transition-all">
+            Salvar Triagem
+        </button>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block content %}
+
+<main class="flex-1 flex flex-col relative h-full overflow-hidden">
+    <div class="flex-1 overflow-y-auto p-8">
+        <form id="form-triagem" class="max-w-6xl mx-auto space-y-8 pb-10">
+
+            <section class="bg-[#1e293b] rounded-xl border border-[#334155] p-6 shadow-lg">
+                <h2 class="text-sm font-bold text-slate-400 uppercase tracking-wider mb-6 flex items-center gap-2">
+                    <span class="w-2 h-2 rounded-full bg-cyan-500"></span>
+                    Dados da Triagem
+                </h2>
+
+                <div class="grid grid-cols-1 md:grid-cols-12 gap-4">
+                    <div class="input-group md:col-span-2">
+                        <input type="text" id="data" class="input-dynamic has-value" readonly>
+                        <label class="label-dynamic">Data - Triagem</label>
+                    </div>
+                    <div class="input-group md:col-span-3">
+                        <input type="text" id="ticket" class="input-dynamic" placeholder=" ">
+                        <label class="label-dynamic">Nº Ticket</label>
+                    </div>
+                    <div class="input-group md:col-span-3">
+                        <input type="text" id="nf" class="input-dynamic" placeholder=" ">
+                        <label class="label-dynamic">Nota Fiscal</label>
+                    </div>
+                    <div class="input-group md:col-span-2">
+                        <input type="text" id="Cidade" class="input-dynamic" placeholder=" ">
+                        <label class="label-dynamic">Cidade</label>
+                    </div>
+                    <div class="input-group md:col-span-2 relative">
+                        <select id="Estado" class="input-dynamic appearance-none cursor-pointer" required>
+                            <option value="" disabled selected></option>
+                            <option value="SP">SP</option>
+                            <option value="RJ">RJ</option>
+                            <option value="MG">MG</option>
+                            <option value="PR">PR</option>
+                            <option value="SC">SC</option>
+                            <option value="RS">RS</option>
+                        </select>
+                        <label class="label-dynamic">Estado</label>
+                    </div>
+
+                    <div class="input-group md:col-span-4 relative">
+                        <select id="cliente" class="input-dynamic appearance-none cursor-pointer" required>
+                            <option value="" disabled selected>Carregando...</option>
+                        </select>
+                        <label class="label-dynamic">Cliente</label>
+                    </div>
+                    <div class="input-group md:col-span-4 relative">
+                        <select id="tecnico" class="input-dynamic appearance-none cursor-pointer" required>
+                            <option value="" disabled selected>Carregando...</option>
+                        </select>
+                        <label class="label-dynamic">Técnico Resp.</label>
+                    </div>
+                    <div class="input-group md:col-span-4 relative">
+                        <select id="analista" class="input-dynamic appearance-none cursor-pointer" required>
+                            <option value="" disabled selected>Carregando...</option>
+                        </select>
+                        <label class="label-dynamic">Analista Resp. Chamado</label>
+                    </div>
+                </div>
+            </section>
+
+            <section class="bg-[#1e293b] rounded-xl border border-[#334155] p-6 shadow-lg">
+                <h2 class="text-sm font-bold text-slate-400 uppercase tracking-wider mb-6 flex items-center gap-2">
+                    <span class="w-2 h-2 rounded-full bg-indigo-500"></span>
+                    Dados do Equipamento/Peça avaliado
+                </h2>
+
+                <div class="grid grid-cols-1 md:grid-cols-12 gap-4">
+                    <div class="input-group md:col-span-5 relative">
+                        <select id="equipamento" class="input-dynamic appearance-none cursor-pointer" required>
+                            <option value="" disabled selected>Carregando...</option>
+                        </select>
+                        <label class="label-dynamic">Modelo do Equipamento</label>
+                    </div>
+                    <div class="input-group md:col-span-4">
+                        <input type="text" id="nserie" class="input-dynamic font-mono tracking-widest uppercase"
+                            placeholder=" ">
+                        <label class="label-dynamic">N° de Série (SN)</label>
+                    </div>
+
+                    <div class="md:col-span-3 flex items-center">
+                        <div
+                            class="switch-container w-full flex items-center justify-between bg-slate-800/50 p-2 rounded-lg border border-slate-700">
+                            <span class="text-xs font-bold text-slate-400 uppercase tracking-wide">Status Final</span>
+                            <div class="flex items-center gap-3">
+                                <div
+                                    class="relative inline-block w-12 align-middle select-none transition duration-200 ease-in">
+
+                                    <label class="relative inline-flex items-center cursor-pointer">
+                                        <input type="checkbox" id="funcional" class="sr-only peer">
+                                        <div class="w-11 h-6 bg-slate-600 rounded-full peer 
+                peer-checked:after:translate-x-full peer-checked:after:border-white 
+                after:content-[''] after:absolute after:top-[2px] after:left-[2px] 
+                after:bg-white after:border-slate-300 after:border after:rounded-full 
+                after:h-5 after:w-5 after:transition-all 
+                peer-checked:bg-emerald-500 hover:ring-2 hover:ring-cyan-500/50">
+                                        </div>
+                                    </label>
+                                </div>
+                                <span id="status-texto" class="text-sm font-semibold text-rose-400 w-16">Defeito</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="input-group md:col-span-12">
+                        <input type="text" id="troca" class="input-dynamic" placeholder=" ">
+                        <label class="label-dynamic">Peça / Equipamento Trocado</label>
+                    </div>
+                </div>
+            </section>
+
+            <section class="bg-[#1e293b] rounded-xl border border-[#334155] p-6 shadow-lg">
+                <h2 class="text-sm font-bold text-slate-400 uppercase tracking-wider mb-6 flex items-center gap-2">
+                    <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+                    Relatório da Análise Técnica
+                </h2>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="input-group md:col-span-2">
+                        <textarea id="defeitoAlegado" rows="2" class="input-dynamic resize-y min-h-[80px]"
+                            placeholder=" "></textarea>
+                        <label class="label-dynamic">Defeito Alegado pelo Usuário</label>
+                    </div>
+                    <div class="input-group md:col-span-2">
+                        <textarea id="constatacao" rows="3" class="input-dynamic resize-y min-h-[100px]"
+                            placeholder=" "></textarea>
+                        <label class="label-dynamic">Constatação do Técnico de Campo</label>
+                    </div>
+
+                    <div class="input-group md:col-span-1">
+                        <input type="text" id="defeitoResumo" class="input-dynamic" placeholder=" ">
+                        <label class="label-dynamic">Defeito Constatado (Resumo)</label>
+                    </div>
+                    <div class="input-group md:col-span-1">
+                        <input type="text" id="testes" class="input-dynamic" placeholder=" ">
+                        <label class="label-dynamic">Testes Realizados</label>
+                    </div>
+
+                    <div class="input-group md:col-span-2">
+                        <textarea id="analise" rows="3" class="input-dynamic resize-y min-h-[100px]"
+                            placeholder=" "></textarea>
+                        <label class="label-dynamic">Análise do Equipamento/Peça</label>
+                    </div>
+                    <div class="input-group md:col-span-2">
+                        <textarea id="conclusao" rows="3" class="input-dynamic resize-y min-h-[100px]"
+                            placeholder=" "></textarea>
+                        <label class="label-dynamic">Conclusão</label>
+                    </div>
+                </div>
+            </section>
+
+        </form>
+    </div>
+</main>
+{% endblock %}
+{%block extra_js %}
+<script src="{% static 'Daedalus/TelaPrincipal/main.js' %}" defer></script>
+{% endblock %}

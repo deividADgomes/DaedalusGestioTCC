@@ -1,0 +1,116 @@
+{% extends 'Daedalus/Base.html' %}
+{% load static %}
+{% block title %}Daedalus Gestio - Triagem{% endblock %}
+{% block extra_css %}
+
+{% endblock %}
+
+{% block header %}
+<div>
+    <h1 class="text-2xl font-bold text-white">Gerenciamento dos Funcionários</h1>
+    <p class="text-xs text-cyan-500 font-medium tracking-wide uppercase mt-1">Colaboradores Internos</p>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="flex-1 overflow-y-auto p-8">
+    <div class="max-w-6xl mx-auto space-y-8 pb-10">
+
+        <section class="bg-[#1e293b] rounded-xl border border-[#334155] p-6 shadow-lg">
+            <div class="flex items-center justify-between mb-8">
+                <h2 class="text-sm font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
+                    <span class="w-2 h-2 rounded-full bg-cyan-500"></span>
+                    Novo Registro de Funcionário
+                </h2>
+
+                <div class="flex gap-3">
+                    <button type="button" id="btn-limpar"
+                        class="px-4 py-2 rounded-md text-xs font-semibold text-slate-300 bg-slate-800 hover:bg-slate-700 transition-colors">
+                        Limpar
+                    </button>
+                    <button type="button" id="btn-salvar-funcionario"
+                        class="px-5 py-2 rounded-md text-xs font-semibold text-white bg-cyan-600 hover:bg-cyan-500 shadow-[0_0_15px_rgba(6,182,212,0.3)] transition-all">
+                        Salvar Funcionário
+                    </button>
+                </div>
+            </div>
+
+            <form id="form-cadastro-funcionario" class="grid grid-cols-1 md:grid-cols-12 gap-4">
+
+                <div class="input-group md:col-span-8">
+                    <input type="text" id="nome" name="nome" class="input-dynamic" placeholder=" " required>
+                    <label class="label-dynamic">Nome Completo</label>
+                </div>
+
+                <div class="input-group md:col-span-4 relative">
+                    <select id="cargo" name="cargo" class="input-dynamic appearance-none cursor-pointer pr-10" required>
+                        <option value="" disabled selected>Selecione o cargo...</option>
+                        <option value="Funcionário">Funcionário</option>
+                        <option value="Analista de Triagem">Analista de Triagem</option>
+                        <option value="Gestor">Gestor</option>
+                        <option value="Administrador">Administrador</option>
+                    </select>
+                    <label class="label-dynamic">Cargo / Função</label>
+
+                    <div class="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7">
+                            </path>
+                        </svg>
+                    </div>
+                </div>
+
+                <div class="input-group md:col-span-6">
+                    <input type="text" id="login" name="login" class="input-dynamic" placeholder=" " required>
+                    <label class="label-dynamic">Login de Acesso</label>
+                </div>
+
+                <div class="input-group md:col-span-6">
+                    <input type="password" id="senha" name="senha" class="input-dynamic" placeholder=" " required>
+                    <label class="label-dynamic">Senha</label>
+                </div>
+
+            </form>
+        </section>
+
+        <section
+            class="flex flex-col md:flex-row gap-4 items-center bg-[#0f172a]/40 p-2 rounded-xl border border-[#334155]/50 backdrop-blur-sm">
+            <div class="relative flex-1 w-full">
+                <span class="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                    </svg>
+                </span>
+                <input type="text" id="pesquisa-funcionario" placeholder="Buscar por nome ou login..."
+                    class="w-full bg-transparent border-none py-3 pl-12 pr-4 text-sm text-slate-200 focus:ring-0 placeholder:text-slate-500 outline-none">
+            </div>
+
+            <div class="flex items-center gap-2 pr-2 border-l border-[#334155]/50 pl-4">
+                <label class="text-[10px] font-bold text-slate-500 uppercase tracking-tighter">Filtrar por
+                    Cargo:</label>
+                <select id="filtro-cargo"
+                    class="bg-transparent border-none text-xs text-slate-300 py-2 px-2 outline-none cursor-pointer hover:text-cyan-400 transition-colors">
+                    <option value="todos" class="text-black">Todos</option>
+                    <option value="Funcionário" class="text-black">Funcionário</option>
+                    <option value="Analista de Triagem" class="text-black">Analista</option>
+                    <option value="Gestor" class="text-black">Gestor</option>
+                    <option value="Administrador" class="text-black">Administrador</option>
+                </select>
+            </div>
+        </section>
+
+        <section id="lista-funcionarios" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 min-h-[200px]">
+            <div
+                class="col-span-full flex flex-col items-center justify-center py-16 text-slate-600 border-2 border-dashed border-[#334155] rounded-2xl">
+                <p class="text-sm font-medium uppercase tracking-wider">Aguardando dados do servidor...</p>
+            </div>
+        </section>
+
+    </div>
+</div>
+{% endblock %}
+
+{%block extra_js %}
+<script src="{% static 'Daedalus/GerenciarFuncionario/G_Funcionario.js' %}" defer></script>
+{% endblock %}
