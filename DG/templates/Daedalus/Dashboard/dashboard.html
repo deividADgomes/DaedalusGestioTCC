@@ -1,100 +1,230 @@
-{% extends 'Daedalus/Base.html' %}
+{% extends 'Daedalus/base.html' %}
 {% load static %}
 
 {% block title %}Daedalus Gestio - Dashboard{% endblock %}
 
 {% block header %}
-<div class="flex flex-col md:flex-row md:items-center justify-between w-full gap-4">
+<div class="flex flex-col xl:flex-row xl:items-center justify-between w-full gap-4">
     <div>
-        <h1 class="text-2xl font-bold text-white">Dashboard de Performance</h1>
-        <p class="text-xs text-cyan-500 font-bold uppercase mt-1">Inteligência e Métricas</p>
+        <h1 class="text-2xl font-bold text-white">Dashboard de Qualidade</h1>
+        <p class="text-xs text-cyan-500 font-bold uppercase mt-1">Análise de NFF (peça funcional) e desempenho do campo</p>
+        <p id="periodo-info" class="text-[11px] text-slate-500 mt-1"></p>
     </div>
-    
-    <div class="flex items-center gap-3 bg-[#1e293b] p-2 rounded-lg border border-[#334155]">
-        <input type="date" id="filtro-inicio" class="bg-[#0f172a] border-none text-xs text-slate-300 rounded p-1 outline-none">
-        <span class="text-slate-500">até</span>
-        <input type="date" id="filtro-fim" class="bg-[#0f172a] border-none text-xs text-slate-300 rounded p-1 outline-none">
-        <button id="btn-filtrar" class="bg-cyan-600 hover:bg-cyan-500 text-white text-[10px] font-bold px-3 py-1.5 rounded transition-all uppercase">Filtrar</button>
+
+    <div class="flex flex-wrap items-center gap-2">
+        <div id="presets" class="flex items-center bg-[#1e293b] rounded-lg border border-[#334155] p-1 text-[10px] font-bold uppercase">
+            <button data-preset="7" class="preset-btn px-2.5 py-1.5 rounded text-slate-400 hover:text-white">7 dias</button>
+            <button data-preset="30" class="preset-btn px-2.5 py-1.5 rounded text-slate-400 hover:text-white">30 dias</button>
+            <button data-preset="90" class="preset-btn px-2.5 py-1.5 rounded text-slate-400 hover:text-white">90 dias</button>
+            <button data-preset="ano" class="preset-btn px-2.5 py-1.5 rounded text-slate-400 hover:text-white">Ano</button>
+            <button data-preset="tudo" class="preset-btn px-2.5 py-1.5 rounded text-slate-400 hover:text-white">Tudo</button>
+        </div>
+        <div class="flex items-center gap-2 bg-[#1e293b] p-1.5 rounded-lg border border-[#334155]">
+            <input type="date" id="filtro-inicio" class="bg-[#0f172a] border-none text-xs text-slate-300 rounded p-1 outline-none">
+            <span class="text-slate-500 text-xs">até</span>
+            <input type="date" id="filtro-fim" class="bg-[#0f172a] border-none text-xs text-slate-300 rounded p-1 outline-none">
+            <button id="btn-aplicar" class="bg-cyan-600 hover:bg-cyan-500 text-white text-[10px] font-bold px-3 py-1.5 rounded transition-all uppercase">Aplicar</button>
+        </div>
+        <label class="flex items-center gap-1.5 text-[10px] text-slate-400 uppercase font-bold cursor-pointer">
+            <input type="checkbox" id="chk-comparar" checked class="accent-cyan-500"> Comparar
+        </label>
+        <a id="btn-exportar" href="#" class="bg-[#1e293b] hover:bg-slate-700 border border-[#334155] text-slate-200 text-[10px] font-bold px-3 py-2 rounded-lg uppercase">Exportar CSV</a>
     </div>
 </div>
 {% endblock %}
 
 {% block content %}
-<div class="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 bg-[#0f172a]">
-    
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div class="bg-[#1e293b] p-5 rounded-xl border border-[#334155] flex flex-col justify-center">
-            <p class="text-[10px] text-slate-400 font-bold uppercase mb-1">Volume Total de Triagens</p>
-            <h3 id="kpi-total" class="text-3xl font-bold text-white">--</h3>
-        </div>
-        
-        <div class="bg-gradient-to-br from-indigo-900/40 to-[#1e293b] p-5 rounded-xl border border-indigo-500/30 flex flex-col justify-center">
-            <p class="text-[10px] text-indigo-400 font-bold uppercase mb-1">Cliente Nº 1</p>
-            <h3 id="kpi-cliente-nome" class="text-xl font-bold text-white truncate">--</h3>
-            <p id="kpi-cliente-equip" class="text-[10px] text-slate-300 mt-2 truncate">Equipamento: <span class="font-bold text-white">--</span></p>
-            <p id="kpi-cliente-defeito" class="text-[10px] text-rose-300 truncate">Pior Defeito: <span class="font-bold">--</span></p>
-        </div>
+<div class="flex-1 overflow-y-auto p-4 md:p-8 space-y-5 bg-[#0f172a]">
 
-        <div class="bg-[#1e293b] p-5 rounded-xl border border-[#334155] flex flex-col justify-center">
-            <p class="text-[10px] text-amber-400 font-bold uppercase mb-1">Peça Mais Substituída</p>
-            <h3 id="kpi-peca-nome" class="text-xl font-bold text-white truncate">--</h3>
-            <p id="kpi-peca-modelo" class="text-[10px] text-amber-200 mt-1 truncate">Modelo: <span class="font-bold">--</span></p>
-            <p id="kpi-peca-qtd" class="text-[10px] text-slate-500 mt-1">-- trocas efetuadas</p>
+    <!-- Filtros analíticos (também recebem os cliques dos gráficos) -->
+    <div class="bg-[#1e293b] rounded-xl border border-[#334155] p-4 space-y-3">
+        <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+            <select id="f-prestadora" class="filtro-sel bg-[#0f172a] text-xs text-slate-300 border border-[#334155] rounded px-2 py-2 outline-none"></select>
+            <select id="f-tecnico" class="filtro-sel bg-[#0f172a] text-xs text-slate-300 border border-[#334155] rounded px-2 py-2 outline-none"></select>
+            <select id="f-cliente" class="filtro-sel bg-[#0f172a] text-xs text-slate-300 border border-[#334155] rounded px-2 py-2 outline-none"></select>
+            <select id="f-estado" class="filtro-sel bg-[#0f172a] text-xs text-slate-300 border border-[#334155] rounded px-2 py-2 outline-none"></select>
+            <select id="f-equipamento" class="filtro-sel bg-[#0f172a] text-xs text-slate-300 border border-[#334155] rounded px-2 py-2 outline-none"></select>
+            <select id="f-analista" class="filtro-sel bg-[#0f172a] text-xs text-slate-300 border border-[#334155] rounded px-2 py-2 outline-none"></select>
         </div>
-
-        <div class="bg-[#1e293b] p-5 rounded-xl border border-[#334155] flex flex-col justify-center">
-            <p class="text-[10px] text-rose-500 font-bold uppercase mb-1">Total de Erros Encontrados</p>
-            <h3 id="kpi-erros" class="text-3xl font-bold text-white">--</h3>
+        <div class="flex flex-wrap items-center gap-2 min-h-[24px]">
+            <span class="text-[10px] text-slate-500 uppercase font-bold">Filtros ativos:</span>
+            <div id="filtros-ativos" class="flex flex-wrap gap-2"></div>
+            <button id="btn-limpar" class="hidden text-[10px] text-slate-400 hover:text-cyan-400 uppercase font-bold ml-auto">Limpar filtros</button>
         </div>
     </div>
 
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div class="bg-[#1e293b] p-6 rounded-xl border border-[#334155] flex flex-col h-[350px]">
-            <div class="flex justify-between items-center mb-4">
-                <h2 class="text-xs text-slate-400 font-bold uppercase">Ranking de Técnicos</h2>
-                <select id="toggle-tecnico" class="bg-[#0f172a] text-[10px] text-cyan-400 border border-cyan-900 rounded px-2 py-1 outline-none">
-                    <option value="erros">Piores (Erros)</option>
-                    <option value="sucessos">Melhores (Sucessos)</option>
-                </select>
+    <!-- Estado vazio -->
+    <div id="estado-vazio" class="hidden bg-[#1e293b] rounded-xl border border-dashed border-[#334155] p-10 text-center">
+        <p class="text-slate-300 font-bold">Nenhuma triagem encontrada para esses filtros.</p>
+        <p class="text-xs text-slate-500 mt-1">Amplie o período ou remova algum filtro.</p>
+    </div>
+
+    <div id="conteudo-dashboard" class="space-y-5">
+
+        <!-- KPIs -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
+            <div class="bg-[#1e293b] p-4 rounded-xl border border-[#334155]">
+                <p class="text-[10px] text-slate-400 font-bold uppercase">Triagens</p>
+                <div class="flex items-end justify-between gap-2">
+                    <h3 id="k-triagens" class="text-3xl font-bold text-white">--</h3>
+                    <div id="spark-triagens" class="w-24 h-10"></div>
+                </div>
+                <p id="k-triagens-delta" class="text-[11px] mt-1 text-slate-500"></p>
+                <p id="k-triagens-sub" class="text-[10px] text-slate-500"></p>
             </div>
-            <div class="flex-1 min-h-0"><canvas id="chartTecnicos"></canvas></div>
-        </div>
 
-        <div class="bg-[#1e293b] p-6 rounded-xl border border-[#334155] flex flex-col h-[350px]">
-            <div class="flex justify-between items-center mb-4">
-                <h2 class="text-xs text-slate-400 font-bold uppercase">Produtividade de Analistas</h2>
-                <select id="toggle-analista" class="bg-[#0f172a] text-[10px] text-purple-400 border border-purple-900 rounded px-2 py-1 outline-none">
-                    <option value="total">Ver Todos</option>
-                    <option value="erros">Com Defeito</option>
-                    <option value="sucessos">Funcionais</option>
-                </select>
+            <div class="bg-[#1e293b] p-4 rounded-xl border border-rose-500/30">
+                <p class="text-[10px] text-rose-400 font-bold uppercase" title="Peças trocadas em campo que a bancada constatou funcionais">Taxa de NFF (peça funcional)</p>
+                <div class="flex items-end justify-between gap-2">
+                    <h3 id="k-nff" class="text-3xl font-bold text-white">--</h3>
+                    <div id="spark-nff" class="w-24 h-10"></div>
+                </div>
+                <p id="k-nff-delta" class="text-[11px] mt-1 text-slate-500"></p>
+                <div class="relative h-2 mt-2 bg-slate-700/60 rounded" title="Faixa de referência da literatura: 20% a 50%">
+                    <div class="absolute h-2 bg-amber-500/40 rounded" style="left:20%;width:30%"></div>
+                    <div id="k-nff-marcador" class="absolute -top-0.5 h-3 w-1 bg-white rounded" style="left:0%"></div>
+                </div>
+                <p class="text-[9px] text-slate-500 mt-1">Faixa de referência (literatura): 20% a 50%</p>
             </div>
-            <div class="flex-1 min-h-0"><canvas id="chartAnalistas"></canvas></div>
+
+            <div class="bg-[#1e293b] p-4 rounded-xl border border-[#334155]">
+                <p class="text-[10px] text-amber-400 font-bold uppercase" title="Diagnóstico do técnico diferente do defeito constatado na bancada">Diagnóstico divergente</p>
+                <h3 id="k-div" class="text-3xl font-bold text-white">--</h3>
+                <p id="k-div-delta" class="text-[11px] mt-1 text-slate-500"></p>
+                <p id="k-div-sub" class="text-[10px] text-slate-500"></p>
+            </div>
+
+            <div class="bg-[#1e293b] p-4 rounded-xl border border-[#334155]">
+                <p class="text-[10px] text-indigo-400 font-bold uppercase" title="Números de série que passaram pela triagem mais de uma vez">Reincidência (SN)</p>
+                <h3 id="k-reinc" class="text-3xl font-bold text-white">--</h3>
+                <p id="k-reinc-sub" class="text-[10px] text-slate-500 mt-1"></p>
+            </div>
+
+            <div class="bg-[#1e293b] p-4 rounded-xl border border-[#334155]">
+                <p class="text-[10px] text-cyan-400 font-bold uppercase" title="Técnicos acima dos limites de controle de 2 e 3 sigma">Técnicos em alerta</p>
+                <h3 id="k-alerta" class="text-3xl font-bold text-white">--</h3>
+                <p id="k-alerta-sub" class="text-[10px] text-slate-500 mt-1"></p>
+            </div>
         </div>
+
+        <!-- Abas por decisão -->
+        <div class="flex gap-1 border-b border-[#334155] overflow-x-auto">
+            <button data-tab="geral" class="tab-btn px-4 py-2 text-xs font-bold uppercase whitespace-nowrap">Visão geral</button>
+            <button data-tab="tecnicos" class="tab-btn px-4 py-2 text-xs font-bold uppercase whitespace-nowrap">Técnicos</button>
+            <button data-tab="causas" class="tab-btn px-4 py-2 text-xs font-bold uppercase whitespace-nowrap">Causas</button>
+            <button data-tab="detalhe" class="tab-btn px-4 py-2 text-xs font-bold uppercase whitespace-nowrap">Detalhe</button>
+        </div>
+
+        <!-- VISÃO GERAL -->
+        <section id="tab-geral" class="tab-panel space-y-5">
+            <div class="grid grid-cols-1 xl:grid-cols-12 gap-5">
+                <div class="xl:col-span-5 bg-[#1e293b] rounded-xl border border-[#334155] p-5">
+                    <h2 class="text-xs text-slate-400 font-bold uppercase mb-3">Insights automáticos</h2>
+                    <div id="lista-insights" class="space-y-2"></div>
+                </div>
+                <div class="xl:col-span-7 bg-[#1e293b] rounded-xl border border-[#334155] p-5">
+                    <h2 class="text-xs text-slate-400 font-bold uppercase mb-1">Volume e taxa de NFF no tempo</h2>
+                    <p class="text-[10px] text-slate-500 mb-2">Barras: triagens. Linha: % de peças funcionais. Faixa amarela: referência da literatura.</p>
+                    <div id="chart-tendencia" class="h-[330px]"></div>
+                </div>
+            </div>
+            <div class="bg-[#1e293b] rounded-xl border border-[#334155] p-5">
+                <div class="flex items-center justify-between mb-2">
+                    <h2 class="text-xs text-slate-400 font-bold uppercase">Onde o NFF se concentra</h2>
+                    <select id="sel-dimensao" class="bg-[#0f172a] text-[10px] text-cyan-400 border border-cyan-900 rounded px-2 py-1 outline-none">
+                        <option value="cliente">Por cliente</option>
+                        <option value="prestadora">Por prestadora</option>
+                        <option value="estado">Por estado</option>
+                        <option value="analista">Por analista da bancada</option>
+                    </select>
+                </div>
+                <p class="text-[10px] text-slate-500 mb-2">Clique em uma barra para filtrar todo o dashboard.</p>
+                <div id="chart-dimensao" class="h-[320px]"></div>
+            </div>
+        </section>
+
+        <!-- TÉCNICOS -->
+        <section id="tab-tecnicos" class="tab-panel hidden space-y-5">
+            <div class="grid grid-cols-1 xl:grid-cols-12 gap-5">
+                <div class="xl:col-span-6 bg-[#1e293b] rounded-xl border border-[#334155] p-5">
+                    <h2 class="text-xs text-slate-400 font-bold uppercase mb-1">Controle estatístico dos técnicos (funnel plot)</h2>
+                    <p class="text-[10px] text-slate-500 mb-2">Cada ponto é um técnico. Acima da linha amarela (2σ) há atenção; acima da vermelha (3σ), ação. Poucas triagens geram limites largos, então ninguém é punido por azar.</p>
+                    <div id="chart-funil" class="h-[400px]"></div>
+                </div>
+                <div class="xl:col-span-6 bg-[#1e293b] rounded-xl border border-[#334155] p-5">
+                    <div class="flex items-center justify-between mb-3">
+                        <h2 class="text-xs text-slate-400 font-bold uppercase">Ranking de técnicos</h2>
+                        <select id="sel-ordem" class="bg-[#0f172a] text-[10px] text-cyan-400 border border-cyan-900 rounded px-2 py-1 outline-none">
+                            <option value="ic">Pior primeiro (confiável)</option>
+                            <option value="taxa">Maior taxa de NFF</option>
+                            <option value="volume">Maior volume</option>
+                            <option value="melhor">Melhor primeiro</option>
+                        </select>
+                    </div>
+                    <div class="overflow-x-auto max-h-[400px] overflow-y-auto">
+                        <table class="w-full text-xs text-left">
+                            <thead class="text-[10px] text-slate-500 uppercase sticky top-0 bg-[#1e293b]">
+                                <tr><th class="py-2 pr-3">Técnico</th><th class="py-2 pr-3 text-right">Triagens</th><th class="py-2 pr-3">NFF (IC 95%)</th><th class="py-2 pr-3 text-right">Diverg.</th><th class="py-2">Situação</th></tr>
+                            </thead>
+                            <tbody id="tabela-tecnicos" class="divide-y divide-[#334155]"></tbody>
+                        </table>
+                    </div>
+                    <p class="text-[10px] text-slate-500 mt-2">“Pior primeiro” ordena pelo limite inferior do intervalo de confiança de Wilson: só sobe quem tem evidência suficiente.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- CAUSAS -->
+        <section id="tab-causas" class="tab-panel hidden space-y-5">
+            <div class="grid grid-cols-1 xl:grid-cols-2 gap-5">
+                <div class="bg-[#1e293b] rounded-xl border border-[#334155] p-5">
+                    <h2 class="text-xs text-slate-400 font-bold uppercase mb-1">Pareto dos defeitos confirmados</h2>
+                    <p id="pareto-nota" class="text-[10px] text-slate-500 mb-2">Poucos defeitos explicam a maior parte dos casos.</p>
+                    <div id="chart-pareto" class="h-[340px]"></div>
+                </div>
+                <div class="bg-[#1e293b] rounded-xl border border-[#334155] p-5">
+                    <h2 class="text-xs text-slate-400 font-bold uppercase mb-1">Modelos: volume e NFF</h2>
+                    <p class="text-[10px] text-slate-500 mb-2">Área = triagens; cor = taxa de NFF (verde baixa, vermelha alta). Clique para filtrar.</p>
+                    <div id="chart-treemap" class="h-[340px]"></div>
+                </div>
+                <div class="bg-[#1e293b] rounded-xl border border-[#334155] p-5">
+                    <h2 class="text-xs text-slate-400 font-bold uppercase mb-1">Diagnósticos que a bancada contradisse</h2>
+                    <p class="text-[10px] text-slate-500 mb-3">O que o técnico apontou em campo, e o que a bancada constatou.</p>
+                    <div id="lista-transicoes" class="space-y-3"></div>
+                </div>
+                <div class="bg-[#1e293b] rounded-xl border border-[#334155] p-5">
+                    <h2 class="text-xs text-slate-400 font-bold uppercase mb-1">Séries reincidentes</h2>
+                    <p class="text-[10px] text-slate-500 mb-3">Equipamentos que passaram pela triagem mais de uma vez.</p>
+                    <table class="w-full text-xs text-left">
+                        <thead class="text-[10px] text-slate-500 uppercase"><tr><th class="py-2">Série</th><th class="py-2">Modelo</th><th class="py-2 text-right">Vezes</th><th class="py-2 text-right">Última</th></tr></thead>
+                        <tbody id="tabela-reincidencia" class="divide-y divide-[#334155]"></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- DETALHE -->
+        <section id="tab-detalhe" class="tab-panel hidden">
+            <div class="bg-[#1e293b] rounded-xl border border-[#334155] p-5">
+                <div class="flex items-center justify-between mb-3">
+                    <h2 class="text-xs text-slate-400 font-bold uppercase">Triagens mais recentes do recorte</h2>
+                    <span class="text-[10px] text-slate-500">Para ver todas, use “Exportar CSV”.</span>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-xs text-left">
+                        <thead class="text-[10px] text-slate-500 uppercase">
+                            <tr><th class="py-2 pr-3">Data</th><th class="py-2 pr-3">Ticket</th><th class="py-2 pr-3">Série</th><th class="py-2 pr-3">Técnico</th><th class="py-2 pr-3">Cliente</th><th class="py-2 pr-3">Modelo</th><th class="py-2 pr-3">Resultado</th><th class="py-2"></th></tr>
+                        </thead>
+                        <tbody id="tabela-recentes" class="divide-y divide-[#334155]"></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
     </div>
-
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div class="bg-[#1e293b] p-6 rounded-xl border border-[#334155] flex flex-col h-[300px]">
-            <h2 class="text-xs text-slate-400 font-bold uppercase mb-4 text-center">Status Geral</h2>
-            <div class="flex-1 min-h-0 flex items-center justify-center"><canvas id="chartStatus"></canvas></div>
-        </div>
-
-        <div class="bg-[#1e293b] p-6 rounded-xl border border-[#334155] flex flex-col h-[300px]">
-            <h2 class="text-xs text-slate-400 font-bold uppercase mb-4">Top Clientes: Funcional vs Erro</h2>
-            <div class="flex-1 min-h-0"><canvas id="chartClientes"></canvas></div>
-        </div>
-
-        <div class="bg-[#1e293b] p-6 rounded-xl border border-[#334155] flex flex-col h-[300px]">
-            <h2 class="text-xs text-slate-400 font-bold uppercase mb-4">Top Peças Consumidas / Modelo</h2>
-            <div class="flex-1 min-h-0"><canvas id="chartPecas"></canvas></div>
-        </div>
-    </div>
-
 </div>
 {% endblock %}
 
 {% block extra_js %}
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
 <script src="{% static 'Daedalus/Dashboard/dashboard.js' %}" defer></script>
 {% endblock %}

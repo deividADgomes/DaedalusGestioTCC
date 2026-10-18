@@ -79,8 +79,9 @@ class BaseUI {
 
         // Validação do Formulário de Senha (Preparado para API)
         if (formSenha && msgErro && modalSenha) {
-            formSenha.addEventListener("submit", (e) => {
+            formSenha.addEventListener("submit", async (e) => {
                 e.preventDefault();
+                const atual = (document.getElementById("senha-atual") as HTMLInputElement).value;
                 const s1 = (document.getElementById("nova-senha") as HTMLInputElement).value;
                 const s2 = (document.getElementById("confirma-senha") as HTMLInputElement).value;
 
@@ -96,10 +97,28 @@ class BaseUI {
                     return;
                 }
 
-                // TODO: Aqui entra a chamada fetch para a sua API de alterar senha no futuro
-                alert("Validação correta! Falta apenas ligar com a API no Back-end.");
-                modalSenha.classList.add("hidden");
-                formSenha.reset();
+                try {
+                    const resposta = await fetch('/api/alterar-senha/', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ senha_atual: atual, nova_senha: s1 })
+                    });
+                    const resultado = await resposta.json();
+
+                    if (resultado.status === 'sucesso') {
+                        alert("Senha alterada com sucesso.");
+                        modalSenha.classList.add("hidden");
+                        formSenha.reset();
+                        msgErro.classList.add("hidden");
+                    } else {
+                        msgErro.textContent = resultado.mensagem;
+                        msgErro.classList.remove("hidden");
+                    }
+                } catch (erro) {
+                    console.error(erro);
+                    msgErro.textContent = "Erro de conexão com o servidor.";
+                    msgErro.classList.remove("hidden");
+                }
             });
         }
     }

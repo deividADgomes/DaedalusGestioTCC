@@ -13,6 +13,7 @@
             this.listaFuncionarios = document.getElementById('lista-funcionarios');
             this.iniciarEventos();
             this.carregarFuncionarios();
+            this.carregarSolicitacoes();
             this.verificarPermissoes(); // Applica as regras de bloqueio de tela
         }
         iniciarEventos() {
@@ -24,7 +25,7 @@
         // ==========================================
         verificarPermissoes() {
             // TODO: Substituir pela leitura real do usuário logado futuramente
-            const cargoUsuarioLogado = "Administrador"; // <--- Deixei como Administrador para testarmos
+            const cargoUsuarioLogado = document.body.dataset.cargo || "";
             if (cargoUsuarioLogado === "Funcionário" || cargoUsuarioLogado === "Analista de Triagem") {
                 // Bloqueia o formulário inteiro para leitura
                 const inputs = this.form.querySelectorAll('input, select');
@@ -51,9 +52,10 @@
             const cargo = document.getElementById('cargo').value;
             const login = document.getElementById('login').value; // Pegamos como texto primeiro
             const senha = document.getElementById('senha').value;
+            const email = document.getElementById('email').value.trim();
             // 1. Validação de campos vazios
-            if (!nome || !cargo || !login) {
-                alert("Preencha todos os campos obrigatórios (Nome, Cargo e Login)!");
+            if (!nome || !cargo || !login || !email) {
+                alert("Preencha todos os campos obrigatórios (Nome, Cargo, Login e E-mail)!");
                 return;
             }
             // 2. NOVA VALIDAÇÃO: Verifica se o login possui APENAS números
@@ -70,7 +72,7 @@
                 return;
             }
             // O resto do código continua igual...
-            const cargoUsuarioLogado = "Administrador";
+            const cargoUsuarioLogado = document.body.dataset.cargo || "";
             if (cargoUsuarioLogado === "Gestor" && (cargo === "Administrador" || cargo === "Gestor")) {
                 alert("Operação bloqueada: Você não tem privilégios para criar cargos de nível Gestor ou Administrador.");
                 return;
@@ -80,6 +82,7 @@
                 nome: nome,
                 cargo: cargo,
                 login: parseInt(login), // Agora é 100% seguro converter!
+                email: email,
                 senha: senha ? senha : null
             };
             try {
@@ -93,6 +96,7 @@
                     alert(resultado.mensagem);
                     this.limparFormulario();
                     this.carregarFuncionarios();
+                    this.carregarSolicitacoes();
                 }
                 else {
                     alert("Erro: " + resultado.mensagem);
@@ -135,14 +139,15 @@
                                 <span class="text-xs font-bold ${corCargo} uppercase tracking-wider">${func.cargo}</span>
                                 <span class="text-[10px] text-slate-500 font-mono">ID: ${func.id}</span>
                             </div>
-                            <h3 class="text-base font-bold text-slate-200 group-hover:text-cyan-400 transition-colors">${func.nome}</h3>
+                            <h3 class="text-base font-bold text-slate-200 group-hover:text-cyan-400 transition-colors">${this.escapar(func.nome)}</h3>
                             <p class="text-xs text-slate-400 mt-1 font-mono">Login: ${func.login}</p>
+                            <p class="text-xs text-slate-500 mt-1 truncate">${this.escapar(func.email || 'sem e-mail cadastrado')}</p>
                             <div class="mt-4 pt-3 border-t border-[#334155]/50 flex justify-end">
                                 <span class="text-[10px] text-slate-500 uppercase font-bold tracking-widest group-hover:text-cyan-500 transition-colors">Duplo clique para editar</span>
                             </div>
                         `;
                         card.addEventListener('dblclick', () => {
-                            this.prepararEdicao(func.id, func.nome, func.cargo, func.login);
+                            this.prepararEdicao(func.id, func.nome, func.cargo, func.login, func.email || '');
                         });
                         this.listaFuncionarios.appendChild(card);
                     });
@@ -155,8 +160,47 @@
                 this.listaFuncionarios.innerHTML = '<p class="text-sm font-bold text-red-500 col-span-full text-center py-10">Erro crítico ao tentar conectar com o servidor.</p>';
             }
         }
-        prepararEdicao(id, nome, cargo, login) {
-            const cargoUsuarioLogado = "Administrador"; // Trocar pela leitura real depois
+        escapar(valor) {
+            const mapa = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+            return String(valor ?? '').replace(/[&<>"']/g, (c) => mapa[c]);
+        }
+        // ==========================================
+        // SOLICITAÇÕES DE REDEFINIÇÃO DE SENHA (UC09)
+        // ==========================================
+        async carregarSolicitacoes() {
+            const painel = document.getElementById('painel-solicitacoes');
+            const lista = document.getElementById('lista-solicitacoes');
+            if (!painel || !lista)
+                return;
+            try {
+                const resposta = await fetch('/api/solicitacoes-senha/');
+                const resultado = await resposta.json();
+                lista.innerHTML = '';
+                if (resultado.status !== 'sucesso' || resultado.dados.length === 0) {
+                    painel.classList.add('hidden');
+                    return;
+                }
+                painel.classList.remove('hidden');
+                resultado.dados.forEach((pedido) => {
+                    const item = document.createElement('div');
+                    item.className = 'flex items-center justify-between gap-4 bg-[#0f172a] border border-[#334155] rounded-lg px-4 py-3';
+                    item.innerHTML = `
+                        <span class="text-xs text-slate-300"><span class="font-bold text-white">${this.escapar(pedido.nome)}</span> (matrícula ${this.escapar(pedido.login)}) pediu redefinição em ${this.escapar(pedido.data)}</span>
+                        <button type="button" class="px-3 py-1.5 rounded-md text-[10px] font-bold uppercase text-white bg-amber-600 hover:bg-amber-500">Redefinir senha</button>
+                    `;
+                    item.querySelector('button').addEventListener('click', () => {
+                        this.prepararEdicao(pedido.id_funcionario, pedido.nome, pedido.cargo, pedido.login, pedido.email || '');
+                        document.getElementById('senha').focus();
+                    });
+                    lista.appendChild(item);
+                });
+            }
+            catch (error) {
+                console.error('Falha ao carregar solicitações:', error);
+            }
+        }
+        prepararEdicao(id, nome, cargo, login, email) {
+            const cargoUsuarioLogado = document.body.dataset.cargo || "";
             if (cargoUsuarioLogado === "Funcionário" || cargoUsuarioLogado === "Analista de Triagem") {
                 alert("Você não tem permissão para alterar dados de funcionários.");
                 return;
@@ -165,6 +209,7 @@
             document.getElementById('nome').value = nome;
             document.getElementById('cargo').value = cargo;
             document.getElementById('login').value = login.toString();
+            document.getElementById('email').value = email;
             document.getElementById('senha').value = ""; // Senha sempre vem limpa por segurança
             this.btnSalvar.innerText = "Alterar Registro";
             this.btnSalvar.classList.replace('bg-cyan-600', 'bg-amber-600');

@@ -14,7 +14,7 @@
     {% block extra_css %}{% endblock %}
 </head>
 
-<body class="h-screen flex overflow-hidden selection:bg-cyan-500 selection:text-white bg-[#0f172a]">
+<body data-cargo="{{ request.session.funcionario_cargo }}" class="h-screen flex overflow-hidden selection:bg-cyan-500 selection:text-white bg-[#0f172a]">
 
     <aside class="w-20 lg:w-64 bg-[#1e293b] border-r border-[#334155] flex flex-col transition-all duration-300 z-20">
 
@@ -80,7 +80,9 @@
             <div id="submenu-gerenciar" class="hidden flex-col gap-1 lg:static lg:mt-1 lg:pl-11 lg:pr-3 lg:bg-transparent lg:border-none lg:shadow-none lg:w-auto lg:p-0 lg:left-auto lg:top-auto absolute top-0 left-[calc(100%+0.5rem)] w-40 bg-[#1e293b] border border-[#334155] p-2 rounded-lg shadow-xl z-50">
                 <a href="{% url 'gerenciarEmpresa' %}" class="block py-2 px-3 rounded-md text-sm text-slate-400 hover:text-cyan-400 hover:bg-slate-800/50 transition-colors whitespace-nowrap">Empresa</a>
                 <a href="{% url 'gerenciarTecnico' %}" class="block py-2 px-3 rounded-md text-sm text-slate-400 hover:text-cyan-400 hover:bg-slate-800/50 transition-colors whitespace-nowrap">Técnico</a>
+                {% if request.session.funcionario_cargo == 'Administrador' or request.session.funcionario_cargo == 'Gestor' %}
                 <a href="{% url 'gerenciarFuncionario' %}" class="block py-2 px-3 rounded-md text-sm text-slate-400 hover:text-cyan-400 hover:bg-slate-800/50 transition-colors whitespace-nowrap">Funcionário</a>
+                {% endif %}
                 <a href="{% url 'gerenciarModeloEquipamento' %}" class="block py-2 px-3 rounded-md text-sm text-slate-400 hover:text-cyan-400 hover:bg-slate-800/50 transition-colors whitespace-nowrap">Modelo de Equipamentos</a>
             </div>
         </nav>
@@ -136,6 +138,10 @@
 
             <form id="form-alterar-senha" class="space-y-4">
                 <div>
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Senha Atual</label>
+                    <input type="password" id="senha-atual" required class="w-full bg-[#0f172a] border border-[#334155] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-500">
+                </div>
+                <div>
                     <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Nova Senha</label>
                     <input type="password" id="nova-senha" required class="w-full bg-[#0f172a] border border-[#334155] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-500">
                 </div>
@@ -154,6 +160,7 @@
         </div>
     </div>
 
+    <script src="{% static 'Daedalus/csrf.js' %}"></script>
     <script src="{% static 'Daedalus/baseUI.js' %}" defer></script>
     {% block extra_js %}{% endblock %}
 

@@ -3,13 +3,22 @@ from datetime import datetime
 from django.shortcuts import render, redirect
 from django.http import HttpResponse, JsonResponse
 from django.views import View
-from django.utils.decorators import method_decorator
-from django.views.decorators.csrf import csrf_exempt
+import re
+import unicodedata
 from django.db.models import Count, F, Q
 
-from .models import Triagem
+from .models import Funcionario, Triagem
+from .analytics import FiltroInvalido, exportar_csv, montar_dashboard
 from .dtos import CargoFuncionario, EmpresaDTO, EquipamentoDTO, StatusPeca, TipoEmpresa, TecnicoDTO, FuncionarioDTO, TriagemDTO
-from .services import EmpresaService, EquipamentoService, FuncionarioService, TecnicoService, TriagemService
+from .services import EmpresaService, EquipamentoService, FuncionarioService, SolicitacaoSenhaService, TecnicoService, TriagemService
+
+def _normalizar_texto(valor):
+    """Minúsculas, sem acentos nem pontuação: base da comparação diagnóstico do técnico x constatação."""
+    if not valor:
+        return ''
+    sem_acento = ''.join(c for c in unicodedata.normalize('NFD', valor) if unicodedata.category(c) != 'Mn')
+    return re.sub(r'[^a-z0-9]+', ' ', sem_acento.lower()).strip()
+
 
 # ==========================================
 # RENDERIZAÇÃO DAS TELAS (FRONT-END)
@@ -38,12 +47,14 @@ def daedalus_dashboard(request):
 def daedalus_visualizar_triagem(request):
     return render(request, 'Daedalus/Visualizar/visualizar.html')
 
+def daedalus_primeiro_acesso(request):
+    return render(request, 'Daedalus/PrimeiroAcesso/primeiro_acesso.html')
+
 
 # ==========================================
 # APIs E REGRAS DE NEGÓCIO
 # ==========================================
 
-@method_decorator(csrf_exempt, name='dispatch')
 class EmpresaView(View):
     def get(self, request):
         try:
@@ -90,7 +101,6 @@ class EmpresaView(View):
             return JsonResponse({'status': 'erro', 'mensagem': str(e)}, status=500)
 
 
-@method_decorator(csrf_exempt, name='dispatch')
 class TecnicoView(View):
     def get(self, request):
         try:
@@ -122,7 +132,6 @@ class TecnicoView(View):
             return JsonResponse({'status': 'erro', 'mensagem': str(e)}, status=500)
 
 
-@method_decorator(csrf_exempt, name='dispatch')
 class FuncionarioView(View):
     def get(self, request):
         try:
@@ -133,6 +142,7 @@ class FuncionarioView(View):
                     'nome': func.nome,
                     'cargo': func.cargo.value if hasattr(func.cargo, 'value') else str(func.cargo),
                     'login': func.login,
+                    'email': func.email,
                     'primeiroAcesso': func.primeiro_acesso 
                 }
                 for func in funcionarios_dto
@@ -149,8 +159,16 @@ class FuncionarioView(View):
                 nome=body.get('nome'),
                 cargo=CargoFuncionario(body.get('cargo')), 
                 login=int(body.get('login')),
-                senha=body.get('senha') 
+                senha=body.get('senha'),
+                email=body.get('email')
             )
+
+            if request.session.get('funcionario_cargo') == 'Gestor':
+                alvo_existente = Funcionario.objects.filter(pk=dto_entrada.id_funcionario).first() if dto_entrada.id_funcionario else None
+                cargos_restritos = ('Administrador', 'Gestor')
+                if dto_entrada.cargo.value in cargos_restritos or (alvo_existente and alvo_existente.cargo in cargos_restritos):
+                    return JsonResponse({'status': 'erro', 'mensagem': 'Gestor não pode criar ou alterar Gestor/Administrador.'}, status=403)
+
             dto_saida = FuncionarioService.salvar(dto_entrada)
 
             return JsonResponse({
@@ -164,7 +182,6 @@ class FuncionarioView(View):
             return JsonResponse({'status': 'erro', 'mensagem': str(e)}, status=500)
 
 
-@method_decorator(csrf_exempt, name='dispatch')
 class EquipamentoView(View):
     def get(self, request):
         try:
@@ -202,7 +219,6 @@ class EquipamentoView(View):
             return JsonResponse({'status': 'erro', 'mensagem': str(e)}, status=500)
 
 
-@method_decorator(csrf_exempt, name='dispatch')
 class TriagemView(View):
     def get(self, request):
         try:
@@ -225,6 +241,7 @@ class TriagemView(View):
                         'testes': tri.testes, 'analise': tri.analise, 'conclusao': tri.conclusao,
                         'nome_cliente': tri.nome_cliente, 'nome_equipamento': tri.nome_equipamento,
                         'nome_tecnico': tri.nome_tecnico,
+                        'data_triagem': tri.data_triagem.isoformat() if tri.data_triagem else None,
                         # Para o Front-end não quebrar
                         'nome_analista': tri.nome_analista_triagem,
                         'nome_analista_chamado': tri.nome_analista_chamado 
@@ -308,76 +325,27 @@ class ExportarTriagemDocxView(View):
 
 
 class DashboardView(View):
+    """BI do dashboard: toda a análise é feita em Daedalus/analytics.py (filtros via querystring)."""
     def get(self, request):
         try:
-            filtros = Q()
-            query = Triagem.objects.filter(filtros)
-            total = query.count()
+            dados = montar_dashboard(request.GET)
+            return JsonResponse({'status': 'sucesso', 'vazio': dados['vazio'], 'dados': dados})
+        except FiltroInvalido as e:
+            return JsonResponse({'status': 'erro', 'mensagem': str(e)}, status=400)
+        except Exception as e:
+            return JsonResponse({'status': 'erro', 'mensagem': str(e)}, status=500)
 
-            if total == 0:
-                return JsonResponse({'status': 'sucesso', 'vazio': True})
 
-            # 1. Técnicos
-            stats_tecnicos = list(query.values(nome=F('tecnico__nome'))
-                                 .annotate(sucessos=Count('id_triagem', filter=Q(status=1)),
-                                           erros=Count('id_triagem', filter=Q(status=2)),
-                                           total=Count('id_triagem')).order_by('-total')[:10])
-
-            # 2. Analistas (Baseado em quem fez a Triagem na bancada)
-            stats_analistas = list(query.values(nome=F('analista_triagem__nome'))
-                                  .annotate(sucessos=Count('id_triagem', filter=Q(status=1)),
-                                            erros=Count('id_triagem', filter=Q(status=2)),
-                                            total=Count('id_triagem')).order_by('-total')[:10])
-
-            # 3. Insight Profundo: Apenas Clientes (Tipo 2)
-            top_cliente_obj = query.filter(cliente__tipo=2).values('cliente_id', nome=F('cliente__razao_social')).annotate(total=Count('id_triagem')).order_by('-total').first()
-            
-            detalhe_cliente = {}
-            if top_cliente_obj:
-                equip_mais_triado = query.filter(cliente_id=top_cliente_obj['cliente_id']).values(modelo=F('equipamento__modelo')).annotate(qtd=Count('id_triagem')).order_by('-qtd').first()
-                defeito_comum = "Não relatado"
-                if equip_mais_triado:
-                    def_obj = query.filter(cliente_id=top_cliente_obj['cliente_id'], equipamento__modelo=equip_mais_triado['modelo']) \
-                                   .exclude(defeito_constatado__exact='').exclude(defeito_constatado__isnull=True) \
-                                   .values('defeito_constatado').annotate(qtd=Count('id_triagem')).order_by('-qtd').first()
-                    if def_obj: defeito_comum = def_obj['defeito_constatado']
-
-                detalhe_cliente = {
-                    'nome': top_cliente_obj['nome'],
-                    'total': top_cliente_obj['total'],
-                    'equipamento_top': equip_mais_triado['modelo'] if equip_mais_triado else "N/A",
-                    'defeito_top': defeito_comum
-                }
-
-            # 4. Top Clientes (Gráfico Empilhado APENAS CLIENTES tipo=2)
-            top_clientes_graf = list(query.filter(cliente__tipo=2).values(nome=F('cliente__razao_social'))
-                                     .annotate(sucessos=Count('id_triagem', filter=Q(status=1)),
-                                               erros=Count('id_triagem', filter=Q(status=2)),
-                                               total=Count('id_triagem')).order_by('-total')[:5])
-
-            # 5. Top Peças Trocadas (Com Modelo)
-            top_pecas = list(query.exclude(troca__exact='').exclude(troca__isnull=True)
-                                  .values(nome=F('troca'), modelo=F('equipamento__modelo'))
-                                  .annotate(total=Count('id_triagem')).order_by('-total')[:5])
-                                  
-            top_peca_obj = top_pecas[0] if top_pecas else {'nome': 'Nenhuma', 'modelo': '-', 'total': 0}
-
-            dados = {
-                'tecnicos': stats_tecnicos,
-                'analistas': stats_analistas,
-                'top_cliente': detalhe_cliente,
-                'clientes_grafico': top_clientes_graf,
-                'pecas': top_pecas,
-                'top_peca_kpi': top_peca_obj,
-                'resumo': {
-                    'total': total,
-                    'funcionais': query.filter(status=1).count(),
-                    'erros': query.filter(status=2).count()
-                }
-            }
-
-            return JsonResponse({'status': 'sucesso', 'dados': dados})
-
+class DashboardExportarView(View):
+    """Exporta em CSV as triagens do recorte filtrado (mesmos parâmetros do dashboard)."""
+    def get(self, request):
+        try:
+            conteudo = exportar_csv(request.GET)
+            resposta = HttpResponse(conteudo, content_type='text/csv; charset=utf-8')
+            resposta['Content-Disposition'] = 'attachment; filename="triagens_daedalus.csv"'
+            return resposta
+        except FiltroInvalido as e:
+            return JsonResponse({'status': 'erro', 'mensagem': str(e)}, status=400)
         except Exception as e:
             return JsonResponse({'status': 'erro', 'mensagem': str(e)}, status=500)
 
@@ -389,10 +357,9 @@ class DashboardView(View):
 class LoginView(View):
     def get(self, request):
         if request.session.get('funcionario_id'):
-            return redirect('/dashboard/') # Altere se a sua home for outra rota
-        return render(request, 'Daedalus/Login/login.html')
+            return redirect('/principal/')
+        return render(request, 'Daedalus/login/login.html')
 
-@method_decorator(csrf_exempt, name='dispatch')
 class LoginAPIView(View):
     def post(self, request):
         try:
@@ -403,6 +370,11 @@ class LoginAPIView(View):
             if not login_informado or not senha_informada:
                 return JsonResponse({'status': 'erro', 'mensagem': 'Credenciais em branco.'}, status=400)
 
+            try:
+                login_informado = int(login_informado)
+            except (TypeError, ValueError):
+                return JsonResponse({'status': 'erro', 'mensagem': 'Matrícula ou senha incorretos.'}, status=401)
+
             # DELEGA A RESPONSABILIDADE PARA O SERVICE
             funcionario_dto = FuncionarioService.autenticar(login=login_informado, senha=senha_informada)
 
@@ -411,13 +383,63 @@ class LoginAPIView(View):
                 request.session['funcionario_id'] = funcionario_dto.id_funcionario
                 request.session['funcionario_nome'] = funcionario_dto.nome
                 request.session['funcionario_cargo'] = funcionario_dto.cargo
+                request.session['primeiro_acesso'] = funcionario_dto.primeiro_acesso
                 
-                return JsonResponse({'status': 'sucesso', 'mensagem': 'Login aprovado.'})
+                return JsonResponse({
+                    'status': 'sucesso',
+                    'mensagem': 'Login aprovado.',
+                    'primeiro_acesso': funcionario_dto.primeiro_acesso
+                })
             else:
                 return JsonResponse({'status': 'erro', 'mensagem': 'Matrícula ou senha incorretos.'}, status=401)
                 
         except Exception as e:
             return JsonResponse({'status': 'erro', 'mensagem': str(e)}, status=500)
+
+class AlterarSenhaView(View):
+    """RF13/RF14: o próprio usuário logado troca a senha. Exige a senha atual."""
+    def post(self, request):
+        try:
+            id_logado = request.session.get('funcionario_id')
+            if not id_logado:
+                return JsonResponse({'status': 'erro', 'mensagem': 'Sessão expirada. Faça login novamente.'}, status=401)
+
+            dados = json.loads(request.body)
+            FuncionarioService.alterar_senha(
+                id_funcionario=id_logado,
+                senha_atual=dados.get('senha_atual'),
+                nova_senha=dados.get('nova_senha')
+            )
+            request.session['primeiro_acesso'] = False
+            return JsonResponse({'status': 'sucesso', 'mensagem': 'Senha alterada com sucesso.'})
+        except ValueError as ve:
+            return JsonResponse({'status': 'erro', 'mensagem': str(ve)}, status=400)
+        except Exception as e:
+            return JsonResponse({'status': 'erro', 'mensagem': str(e)}, status=500)
+
+
+class RecuperarSenhaView(View):
+    """UC09: o usuário informa matrícula e e-mail na tela de login e o administrador é avisado por e-mail."""
+    def post(self, request):
+        try:
+            dados = json.loads(request.body)
+            try:
+                login = int(dados.get('login'))
+            except (TypeError, ValueError):
+                login = None
+            if login is not None:
+                SolicitacaoSenhaService.registrar(login, dados.get('email'))
+            # Resposta sempre igual: não revela se matrícula e e-mail existem
+            return JsonResponse({'status': 'sucesso', 'mensagem': 'Se a matrícula e o e-mail estiverem corretos, o administrador foi avisado por e-mail e vai redefinir sua senha.'})
+        except Exception as e:
+            return JsonResponse({'status': 'erro', 'mensagem': str(e)}, status=500)
+
+
+class SolicitacoesSenhaView(View):
+    """Lista os pedidos pendentes (acesso restrito a Administrador/Gestor pelo middleware)."""
+    def get(self, request):
+        return JsonResponse({'status': 'sucesso', 'dados': SolicitacaoSenhaService.listar_pendentes()})
+
 
 class LogoutView(View):
     def get(self, request):

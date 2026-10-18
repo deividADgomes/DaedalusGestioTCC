@@ -1,4 +1,5 @@
 from django.db import models
+from django.utils import timezone
 
 class Empresa(models.Model):
     id_empresa = models.AutoField(primary_key=True)
@@ -23,6 +24,7 @@ class Funcionario(models.Model):
     nome = models.CharField(max_length=255)
     login = models.IntegerField(unique=True)
     senha = models.CharField(max_length=255)
+    email = models.EmailField(max_length=254, blank=True, default='')
     primeiro_acesso = models.BooleanField(default=True)
 
     def __str__(self):
@@ -54,6 +56,7 @@ class Triagem(models.Model):
     
     sn = models.CharField(max_length=100)
     status = models.IntegerField()
+    data_triagem = models.DateTimeField(default=timezone.now)
     troca = models.CharField(max_length=255, null=True, blank=True)
     
     # Textos longos
@@ -66,3 +69,11 @@ class Triagem(models.Model):
 
     def __str__(self):
         return f"Ticket: {self.n_ticket} - SN: {self.sn}"
+
+
+class SolicitacaoSenha(models.Model):
+    """UC09: pedido de redefinição de senha feito na tela de login e atendido pelo administrador."""
+    id_solicitacao = models.AutoField(primary_key=True)
+    funcionario = models.ForeignKey(Funcionario, on_delete=models.CASCADE, related_name='solicitacoes_senha')
+    data_solicitacao = models.DateTimeField(default=timezone.now)
+    atendida = models.BooleanField(default=False)

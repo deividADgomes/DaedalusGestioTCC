@@ -12,6 +12,34 @@
                 e.preventDefault(); // Impede a página de recarregar
                 this.realizarLogin();
             });
+            // UC09: "Esqueci minha senha" envia e-mail ao administrador, que redefine pela tela de funcionários
+            const formRecuperar = document.getElementById('form-recuperar');
+            document.getElementById('btn-esqueci').addEventListener('click', () => {
+                formRecuperar.classList.toggle('hidden');
+            });
+            formRecuperar.addEventListener('submit', (e) => {
+                e.preventDefault();
+                this.solicitarRecuperacao();
+            });
+        }
+        async solicitarRecuperacao() {
+            const msg = document.getElementById('msg-recuperar');
+            const matricula = document.getElementById('login-recuperar').value;
+            const email = document.getElementById('email-recuperar').value.trim();
+            try {
+                const resposta = await fetch('/api/recuperar-senha/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ login: parseInt(matricula), email: email })
+                });
+                const resultado = await resposta.json();
+                msg.innerText = resultado.mensagem;
+            }
+            catch (error) {
+                console.error(error);
+                msg.innerText = 'Erro de conexão com o servidor.';
+            }
+            msg.classList.remove('hidden');
         }
         async realizarLogin() {
             const loginInput = document.getElementById('login').value;
@@ -36,7 +64,8 @@
                 const resultado = await resposta.json();
                 if (resultado.status === 'sucesso') {
                     // Login com sucesso! Redireciona para o Dashboard (ou Home)
-                    window.location.href = '/principal/';
+                    // Primeiro acesso: força a troca da senha provisória (RF14)
+                    window.location.href = resultado.primeiro_acesso ? '/primeiro-acesso/' : '/principal/';
                 }
                 else {
                     this.mostrarErro(resultado.mensagem);

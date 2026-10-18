@@ -1,0 +1,47 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Daedalus Gestio - Primeiro Acesso</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-[#0f172a] min-h-screen flex items-center justify-center p-4 font-sans text-slate-300">
+
+    <div class="max-w-md w-full bg-[#1e293b] rounded-2xl shadow-2xl border border-[#334155] p-8 relative overflow-hidden">
+        <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-cyan-900 via-cyan-400 to-cyan-900"></div>
+
+        <div class="text-center mb-6 mt-2">
+            <h1 class="text-2xl font-bold text-white tracking-wide">Daedalus <span class="text-cyan-500">Gestio</span></h1>
+            <p class="text-[10px] text-slate-500 font-bold uppercase mt-2 tracking-widest">Primeiro acesso</p>
+            <p class="text-xs text-slate-400 mt-4">Por segurança, substitua a senha provisória (sua matrícula) por uma senha pessoal.</p>
+        </div>
+
+        <form id="form-primeiro-acesso" class="space-y-5">
+            <p id="msg-erro" class="hidden bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs text-center p-3 rounded-lg font-medium"></p>
+
+            <div>
+                <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Senha provisória (atual)</label>
+                <input type="password" id="senha-atual" required class="w-full bg-[#0f172a] border border-[#334155] rounded-lg px-3 py-3 text-sm text-white focus:outline-none focus:border-cyan-500">
+            </div>
+            <div>
+                <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Nova senha</label>
+                <input type="password" id="nova-senha" required class="w-full bg-[#0f172a] border border-[#334155] rounded-lg px-3 py-3 text-sm text-white focus:outline-none focus:border-cyan-500">
+            </div>
+            <div>
+                <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Confirmar nova senha</label>
+                <input type="password" id="confirma-senha" required class="w-full bg-[#0f172a] border border-[#334155] rounded-lg px-3 py-3 text-sm text-white focus:outline-none focus:border-cyan-500">
+            </div>
+
+            <button type="submit" id="btn-salvar" class="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-bold py-3 px-4 rounded-lg transition-colors uppercase tracking-widest text-xs shadow-lg shadow-cyan-900/20 border border-cyan-500">
+                Salvar nova senha
+            </button>
+            <a href="{% url 'logout' %}" class="block text-center text-[11px] text-slate-500 hover:text-cyan-400">Sair</a>
+        </form>
+    </div>
+
+    <script src="{% static 'Daedalus/csrf.js' %}"></script>
+    <script src="{% static 'Daedalus/PrimeiroAcesso/primeiro_acesso.js' %}"></script>
+</body>
+</html>

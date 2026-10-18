@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Optional
 from enum import IntEnum, Enum
 
@@ -37,6 +38,7 @@ class FuncionarioDTO:
     id_funcionario: Optional[int] = None
     senha: Optional[str] = None
     primeiro_acesso: bool = True
+    email: Optional[str] = None
 
 @dataclass
 class TecnicoDTO:
@@ -74,3 +76,4 @@ class TriagemDTO:
     testes: Optional[str] = None
     analise: Optional[str] = None
     conclusao: Optional[str] = None
+    data_triagem: Optional[datetime] = None

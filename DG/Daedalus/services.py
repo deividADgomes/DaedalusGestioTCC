@@ -1,12 +1,20 @@
 from typing import List, Optional
-from django.core.exceptions import ObjectDoesNotExist
-from .models import Empresa, Equipamento, Funcionario, Tecnico, Triagem
+import logging
+from django.core.exceptions import ObjectDoesNotExist, ValidationError
+from django.core.mail import EmailMessage
+from django.core.validators import validate_email
+from .models import Empresa, Equipamento, Funcionario, SolicitacaoSenha, Tecnico, Triagem
 from .dtos import EmpresaDTO, EquipamentoDTO, FuncionarioDTO, TecnicoDTO, TriagemDTO, StatusPeca
 import os
 from django.conf import settings
 from docx import Document
 from io import BytesIO
 from datetime import date
+from django.contrib.auth.hashers import make_password, check_password, identify_hasher
+from django.utils import timezone
+from django.utils.crypto import constant_time_compare
+
+logger = logging.getLogger(__name__)
 
 
 # ==========================================
@@ -58,6 +66,19 @@ class EmpresaService:
 class EquipamentoService:
     @staticmethod
     def salvar(dto: EquipamentoDTO) -> EquipamentoDTO:
+        pn = (dto.pn or '').strip()
+        modelo = (dto.modelo or '').strip()
+        if not pn or not modelo:
+            raise ValueError("Part Number (PN) e Modelo são obrigatórios.")
+        dto.pn, dto.modelo = pn, modelo
+
+        # UC12: impede cadastro duplicado no catálogo (o PN identifica a peça de forma única)
+        duplicado = Equipamento.objects.filter(pn__iexact=pn)
+        if dto.id_equipamento:
+            duplicado = duplicado.exclude(pk=dto.id_equipamento)
+        if duplicado.exists():
+            raise ValueError("Já existe um equipamento cadastrado com este Part Number.")
+
         if dto.id_equipamento:
             equip = Equipamento.objects.get(pk=dto.id_equipamento)
             equip.pn = dto.pn
@@ -91,33 +112,86 @@ class EquipamentoService:
 # SERVIÇO DE FUNCIONÁRIO
 # ==========================================
 class FuncionarioService:
+    SENHA_MIN = 4
+
+    # ---------- senhas ----------
+    @staticmethod
+    def _senha_em_hash(valor: str) -> bool:
+        try:
+            identify_hasher(valor)
+            return True
+        except ValueError:
+            return False
+
+    @staticmethod
+    def _conferir_senha(func: Funcionario, senha_informada: str) -> bool:
+        """Confere a senha. Registros antigos (texto puro) são aceitos uma vez e convertidos para hash."""
+        armazenada = func.senha or ''
+        if FuncionarioService._senha_em_hash(armazenada):
+            return check_password(senha_informada, armazenada)
+        if constant_time_compare(str(senha_informada), armazenada):
+            func.senha = make_password(senha_informada)
+            func.save(update_fields=['senha'])
+            return True
+        return False
+
+    # ---------- cadastro ----------
     @staticmethod
     def salvar(dto: FuncionarioDTO) -> FuncionarioDTO:
+        nome = (dto.nome or '').strip()
+        if not nome:
+            raise ValueError("O nome é obrigatório.")
+        if not dto.cargo:
+            raise ValueError("O cargo é obrigatório.")
+        cargo = dto.cargo.value if hasattr(dto.cargo, 'value') else dto.cargo
+
+        email = (dto.email or '').strip()
+        if not email:
+            raise ValueError("O e-mail é obrigatório.")
+        try:
+            validate_email(email)
+        except ValidationError:
+            raise ValueError("E-mail inválido.")
+
+        duplicado = Funcionario.objects.filter(login=dto.login)
+        if dto.id_funcionario:
+            duplicado = duplicado.exclude(pk=dto.id_funcionario)
+        if duplicado.exists():
+            raise ValueError("Já existe um funcionário com esta matrícula.")
+
         if dto.id_funcionario:
             func = Funcionario.objects.get(pk=dto.id_funcionario)
-            func.cargo = dto.cargo
-            func.nome = dto.nome
+            func.cargo = cargo
+            func.nome = nome
             func.login = dto.login
+            func.email = email
             if dto.senha:
-                func.senha = dto.senha
-                # Opcional: Se o Admin resetar a senha, podemos forçar o primeiro acesso de novo
-                # func.primeiro_acesso = True 
+                # Redefinição feita pelo Administrador (UC09 - FA02): exige nova troca no próximo login
+                func.senha = make_password(dto.senha)
+                func.primeiro_acesso = True
             func.save()
+            if dto.senha:
+                # Encerra os pedidos de recuperação pendentes deste funcionário
+                SolicitacaoSenha.objects.filter(funcionario=func, atendida=False).update(atendida=True)
         else:
+            # UC07: sem senha informada, a matrícula vira a senha provisória
+            senha_provisoria = dto.senha or str(dto.login)
             func = Funcionario.objects.create(
-                cargo=dto.cargo,
-                nome=dto.nome,
+                cargo=cargo,
+                nome=nome,
                 login=dto.login,
-                senha=dto.senha,
-                primeiro_acesso=True # Garante que todo novo usuário comece com True
+                email=email,
+                senha=make_password(senha_provisoria),
+                primeiro_acesso=True
             )
-            
+
         return FuncionarioDTO(
             id_funcionario=func.id_funcionario,
             cargo=func.cargo,
             nome=func.nome,
             login=func.login,
-            primeiro_acesso=func.primeiro_acesso
+            primeiro_acesso=func.primeiro_acesso,
+            email=func.email
         )
 
     @staticmethod
@@ -129,24 +203,125 @@ class FuncionarioService:
                 cargo=func.cargo,
                 nome=func.nome,
                 login=func.login,
-                primeiro_acesso=func.primeiro_acesso
+                primeiro_acesso=func.primeiro_acesso,
+                email=func.email
             ) for func in funcionarios
         ]
-    
+
+    # ---------- autenticação ----------
     @staticmethod
     def autenticar(login: int, senha: str) -> Optional[FuncionarioDTO]:
-        # Busca no Banco de Dados o Funcionário correspondente
-        func = Funcionario.objects.filter(login=login, senha=senha).first()
-        
-        if func:
+        func = Funcionario.objects.filter(login=login).first()
+
+        if func and FuncionarioService._conferir_senha(func, senha):
             return FuncionarioDTO(
                 id_funcionario=func.id_funcionario,
                 cargo=func.cargo,
                 nome=func.nome,
                 login=func.login,
-                primeiro_acesso=func.primeiro_acesso
+                primeiro_acesso=func.primeiro_acesso,
+                email=func.email
             )
         return None
+
+    @staticmethod
+    def alterar_senha(id_funcionario: int, senha_atual: str, nova_senha: str) -> None:
+        """RF13/RF14: troca de senha pelo próprio usuário (inclusive a troca obrigatória do primeiro acesso)."""
+        func = Funcionario.objects.filter(pk=id_funcionario).first()
+        if not func:
+            raise ValueError("Funcionário não encontrado.")
+        if not senha_atual or not nova_senha:
+            raise ValueError("Informe a senha atual e a nova senha.")
+        if not FuncionarioService._conferir_senha(func, senha_atual):
+            raise ValueError("Senha atual incorreta.")
+        if len(nova_senha) < FuncionarioService.SENHA_MIN:
+            raise ValueError(f"A nova senha deve ter pelo menos {FuncionarioService.SENHA_MIN} caracteres.")
+        if nova_senha == senha_atual:
+            raise ValueError("A nova senha deve ser diferente da atual.")
+        if nova_senha == str(func.login):
+            raise ValueError("A nova senha não pode ser igual à matrícula.")
+
+        func.senha = make_password(nova_senha)
+        func.primeiro_acesso = False
+        func.save(update_fields=['senha', 'primeiro_acesso'])
+
+class SolicitacaoSenhaService:
+    """UC09: o usuário informa matrícula e e-mail cadastrados; o sistema avisa o administrador por e-mail."""
+
+    @staticmethod
+    def registrar(login: int, email: str) -> None:
+        email = (email or '').strip()
+        if not email:
+            return
+        # Só aceita o pedido quando matrícula e e-mail conferem com o cadastro
+        func = Funcionario.objects.filter(login=login, email__iexact=email).first()
+        if not func:
+            return
+        # Um único pedido pendente por funcionário evita repetição e spam
+        if SolicitacaoSenha.objects.filter(funcionario=func, atendida=False).exists():
+            return
+
+        pedido = SolicitacaoSenha.objects.create(funcionario=func)
+        SolicitacaoSenhaService._avisar_administradores(func, pedido)
+
+    @staticmethod
+    def _destinatarios_admin() -> list:
+        emails = list(
+            Funcionario.objects.filter(cargo='Administrador').exclude(email='').values_list('email', flat=True)
+        )
+        extras = getattr(settings, 'DAEDALUS_EMAIL_ADMIN', '') or ''
+        emails += [e.strip() for e in extras.split(',') if e.strip()]
+        vistos, unicos = set(), []
+        for e in emails:
+            if e.lower() not in vistos:
+                vistos.add(e.lower())
+                unicos.append(e)
+        return unicos
+
+    @staticmethod
+    def _avisar_administradores(func: Funcionario, pedido: SolicitacaoSenha) -> None:
+        destinatarios = SolicitacaoSenhaService._destinatarios_admin()
+        if not destinatarios:
+            logger.warning("Pedido de redefinição de senha sem administrador com e-mail cadastrado (matrícula %s).", func.login)
+            return
+
+        data = timezone.localtime(pedido.data_solicitacao).strftime('%d/%m/%Y %H:%M')
+        corpo = (
+            f"O funcionário {func.nome} (matrícula {func.login}, e-mail {func.email}) "
+            f"solicitou a redefinição de senha em {data}.\n\n"
+            "Para atender: acesse Funcionário no Daedalus Gestio, localize o pedido no painel "
+            "\"Solicitações de redefinição de senha\", clique em \"Redefinir senha\" e informe uma senha provisória. "
+            "No próximo login o usuário será obrigado a trocá-la.\n\n"
+            "Você pode responder a este e-mail para falar diretamente com o solicitante."
+        )
+        try:
+            EmailMessage(
+                subject=f"[Daedalus Gestio] Redefinição de senha solicitada: {func.nome}",
+                body=corpo,
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                to=destinatarios,
+                reply_to=[func.email],
+            ).send(fail_silently=False)
+        except Exception:
+            # O pedido continua visível no painel mesmo se o servidor de e-mail falhar
+            logger.exception("Falha ao enviar o e-mail de redefinição de senha (matrícula %s).", func.login)
+
+    @staticmethod
+    def listar_pendentes() -> list:
+        pedidos = SolicitacaoSenha.objects.filter(atendida=False).select_related('funcionario').order_by('data_solicitacao')
+        return [
+            {
+                'id': p.id_solicitacao,
+                'id_funcionario': p.funcionario.id_funcionario,
+                'nome': p.funcionario.nome,
+                'cargo': p.funcionario.cargo,
+                'login': p.funcionario.login,
+                'email': p.funcionario.email,
+                'data': timezone.localtime(p.data_solicitacao).strftime('%d/%m/%Y %H:%M'),
+            }
+            for p in pedidos
+        ]
+
 
 # ==========================================
 # SERVIÇO DE TÉCNICO
@@ -288,6 +463,11 @@ class TriagemService:
         if not valor or not campo:
             raise ValueError("Campo e valor de busca são obrigatórios.")
         
+        campos_permitidos = ('n_ticket', 'nf', 'sn', 'cidade', 'estado',
+                             'tecnico__nome', 'cliente__razao_social', 'equipamento__modelo')
+        if campo not in campos_permitidos:
+            raise ValueError("Campo de busca inválido.")
+
         filtro = {f"{campo}__icontains": valor}
         triagens = Triagem.objects.select_related('cliente', 'equipamento', 'tecnico', 'analista_chamado', 'analista_triagem').filter(**filtro)
         return [TriagemService._mapear_para_dto(t) for t in triagens]
@@ -347,6 +527,7 @@ class TriagemService:
             testes=triagem.testes,
             analise=triagem.analise,
             conclusao=triagem.conclusao,
+            data_triagem=triagem.data_triagem,
             
             # --- Nomes para o Front-end e Exportação ---
             nome_cliente=triagem.cliente.razao_social,
@@ -368,13 +549,14 @@ class TriagemService:
             raise FileNotFoundError("Modelo TRIAGEM.docx não encontrado.")
             
         doc = Document(template_path)
-        data_hoje = date.today().strftime("%d/%m/%Y")
+        # Data real da triagem (e não a data da exportação)
+        data_triagem = timezone.localtime(tri.data_triagem).strftime("%d/%m/%Y") if tri.data_triagem else ""
 
         # ==========================================
         # TABELA 2: DADOS DO CHAMADO
         # ==========================================
         t2 = doc.tables[2]
-        t2.cell(0, 0).text = f"Data: {data_hoje}"
+        t2.cell(0, 0).text = f"Data: {data_triagem}"
         t2.cell(0, 1).text = f"NF: {tri.nf or ''}"
         t2.cell(0, 2).text = f"Ticket: {tri.n_ticket or ''}"
         

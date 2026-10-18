@@ -21,12 +21,17 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-u-c#_&#iw%7c07ell0x&io^v^^)jwfbl(gfz&cbs%g5b9sj8tn'
+# Em produção defina DJANGO_SECRET_KEY no ambiente. O valor abaixo serve apenas para desenvolvimento local.
+SECRET_KEY = os.environ.get(
+    'DJANGO_SECRET_KEY',
+    'django-insecure-u-c#_&#iw%7c07ell0x&io^v^^)jwfbl(gfz&cbs%g5b9sj8tn'
+)
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+# Em produção defina DJANGO_DEBUG=0 e DJANGO_ALLOWED_HOSTS=host1,host2
+DEBUG = os.environ.get('DJANGO_DEBUG', '1') == '1'
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = [h for h in os.environ.get('DJANGO_ALLOWED_HOSTS', '').split(',') if h]
 
 
 # Application definition
@@ -47,6 +52,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'Daedalus.middleware.AutenticacaoMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
@@ -119,5 +125,25 @@ USE_TZ = True
 STATIC_URL = 'static/'
 
 STATICFILES_DIRS = [
-    os.path.join(BASE_DIR, 'static'),
+    os.path.join(BASE_DIR, 'Static'),
 ]
+
+# Sessão do funcionário: expira após 8 horas (um turno de trabalho)
+SESSION_COOKIE_AGE = 60 * 60 * 8
+SESSION_COOKIE_HTTPONLY = True
+
+# E-mail: aviso ao administrador nos pedidos de redefinição de senha (UC09).
+# Em produção defina DJANGO_EMAIL_HOST (e, se precisar, PORT, USER, PASSWORD, TLS e FROM_EMAIL).
+# Sem DJANGO_EMAIL_HOST, o e-mail aparece no console do runserver (desenvolvimento).
+if os.environ.get('DJANGO_EMAIL_HOST'):
+    EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+    EMAIL_HOST = os.environ['DJANGO_EMAIL_HOST']
+    EMAIL_PORT = int(os.environ.get('DJANGO_EMAIL_PORT', '587'))
+    EMAIL_HOST_USER = os.environ.get('DJANGO_EMAIL_USER', '')
+    EMAIL_HOST_PASSWORD = os.environ.get('DJANGO_EMAIL_PASSWORD', '')
+    EMAIL_USE_TLS = os.environ.get('DJANGO_EMAIL_TLS', '1') == '1'
+else:
+    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+DEFAULT_FROM_EMAIL = os.environ.get('DJANGO_FROM_EMAIL', 'daedalus@localhost')
+# Destinatários extras (separados por vírgula) além dos administradores cadastrados com e-mail
+DAEDALUS_EMAIL_ADMIN = os.environ.get('DJANGO_ADMIN_EMAIL', '')

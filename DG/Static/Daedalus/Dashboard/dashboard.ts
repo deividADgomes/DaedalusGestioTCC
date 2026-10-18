@@ -1,167 +1,541 @@
 /// <reference path="../baseUI.ts" />
-declare const Chart: any;
+declare const echarts: any;
 
 (() => {
+    const COR = {
+        texto: '#94a3b8', eixo: '#334155', ciano: '#22d3ee', rosa: '#fb7185', ambar: '#fbbf24',
+        verde: '#34d399', indigo: '#818cf8', cinza: '#64748b'
+    };
+    const STATUS: { [k: string]: { rotulo: string, classe: string, cor: string } } = {
+        critico: { rotulo: 'Crítico', classe: 'bg-rose-500/15 text-rose-300 border-rose-500/40', cor: COR.rosa },
+        atencao: { rotulo: 'Atenção', classe: 'bg-amber-500/15 text-amber-300 border-amber-500/40', cor: COR.ambar },
+        destaque: { rotulo: 'Destaque', classe: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40', cor: COR.verde },
+        normal: { rotulo: 'Normal', classe: 'bg-slate-500/15 text-slate-300 border-slate-500/40', cor: COR.ciano },
+        insuficiente: { rotulo: 'Amostra pequena', classe: 'bg-slate-700/30 text-slate-500 border-slate-600/40', cor: COR.cinza }
+    };
+    const NIVEL: { [k: string]: { borda: string, icone: string, cor: string } } = {
+        critico: { borda: 'border-rose-500', icone: '▲', cor: 'text-rose-400' },
+        atencao: { borda: 'border-amber-500', icone: '●', cor: 'text-amber-400' },
+        info: { borda: 'border-cyan-500', icone: 'i', cor: 'text-cyan-400' },
+        positivo: { borda: 'border-emerald-500', icone: '✓', cor: 'text-emerald-400' }
+    };
+    const FILTROS = ['prestadora', 'tecnico', 'cliente', 'estado', 'equipamento', 'analista'];
+    const ROTULO_FILTRO: { [k: string]: string } = {
+        prestadora: 'Prestadora', tecnico: 'Técnico', cliente: 'Cliente',
+        estado: 'Estado', equipamento: 'Modelo', analista: 'Analista'
+    };
+
+    const esc = (v: any): string => String(v ?? '').replace(/[&<>"']/g, (c) =>
+        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as any)[c]);
+    const pct = (v: number): string => `${Number(v).toFixed(1).replace('.', ',')}%`;
+    const el = (id: string): HTMLElement => document.getElementById(id) as HTMLElement;
+
     class DashboardUI extends BaseUI {
-        private charts: { [key: string]: any } = {};
-        private dadosCache: any = null;
+        private charts: { [id: string]: any } = {};
+        private dados: any = null;
+        private abaAtual = 'geral';
+        private estado: any = { preset: '90', inicio: '', fim: '', comparar: true };
 
         constructor() {
-            super()
-            Chart.defaults.color = '#94a3b8';
-            Chart.defaults.borderColor = '#334155';
-            
-            this.iniciarFiltros();
-            this.carregarDados();
+            super();
+            FILTROS.forEach(f => this.estado[f] = '');
+            this.lerUrl();
+            this.ligarEventos();
+            this.destacarPreset();
+            this.mostrarAba('geral');
+            this.carregar();
         }
 
-        private iniciarFiltros(): void {
-            document.getElementById('btn-filtrar')?.addEventListener('click', () => this.carregarDados());
-            document.getElementById('toggle-tecnico')?.addEventListener('change', () => this.renderizarTecnicos());
-            // Evento para o novo filtro de analistas
-            document.getElementById('toggle-analista')?.addEventListener('change', () => this.renderizarAnalistas());
+        // ---------------- estado e filtros ----------------
+        private iso(d: Date): string {
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const dia = String(d.getDate()).padStart(2, '0');
+            return `${d.getFullYear()}-${m}-${dia}`;
         }
 
-        private async carregarDados(): Promise<void> {
-            const inicio = (document.getElementById('filtro-inicio') as HTMLInputElement).value;
-            const fim = (document.getElementById('filtro-fim') as HTMLInputElement).value;
-            
+        private aplicarPreset(p: string): void {
+            const hoje = new Date();
+            const recuar = (dias: number) => { const d = new Date(hoje); d.setDate(d.getDate() - dias); return this.iso(d); };
+            this.estado.preset = p;
+            if (p === 'tudo') { this.estado.inicio = ''; this.estado.fim = ''; }
+            else if (p === 'ano') { this.estado.inicio = `${hoje.getFullYear()}-01-01`; this.estado.fim = this.iso(hoje); }
+            else { this.estado.inicio = recuar(parseInt(p) - 1); this.estado.fim = this.iso(hoje); }
+            (el('filtro-inicio') as HTMLInputElement).value = this.estado.inicio;
+            (el('filtro-fim') as HTMLInputElement).value = this.estado.fim;
+        }
+
+        private lerUrl(): void {
+            const q = new URLSearchParams(window.location.search);
+            if (Array.from(q.keys()).length === 0) { this.aplicarPreset('90'); return; }
+            this.estado.preset = q.get('preset') || 'custom';
+            this.estado.inicio = q.get('inicio') || '';
+            this.estado.fim = q.get('fim') || '';
+            this.estado.comparar = q.get('comparar') !== '0';
+            FILTROS.forEach(f => this.estado[f] = q.get(f) || '');
+            if (['7', '30', '90', 'ano', 'tudo'].includes(this.estado.preset)) this.aplicarPreset(this.estado.preset);
+            (el('filtro-inicio') as HTMLInputElement).value = this.estado.inicio;
+            (el('filtro-fim') as HTMLInputElement).value = this.estado.fim;
+            (el('chk-comparar') as HTMLInputElement).checked = this.estado.comparar;
+        }
+
+        private params(comPreset = false): URLSearchParams {
+            const q = new URLSearchParams();
+            if (this.estado.inicio) q.set('inicio', this.estado.inicio);
+            if (this.estado.fim) q.set('fim', this.estado.fim);
+            if (!this.estado.comparar) q.set('comparar', '0');
+            FILTROS.forEach(f => { if (this.estado[f]) q.set(f, this.estado[f]); });
+            if (comPreset) q.set('preset', this.estado.preset);
+            return q;
+        }
+
+        private setFiltro(chave: string, valor: string): void {
+            this.estado[chave] = valor;
+            this.carregar();
+        }
+
+        private destacarPreset(): void {
+            document.querySelectorAll('.preset-btn').forEach((b) => {
+                const ativo = (b as HTMLElement).dataset.preset === this.estado.preset;
+                b.classList.toggle('bg-cyan-600', ativo);
+                b.classList.toggle('text-white', ativo);
+                b.classList.toggle('text-slate-400', !ativo);
+            });
+        }
+
+        private ligarEventos(): void {
+            document.querySelectorAll('.preset-btn').forEach(b => b.addEventListener('click', () => {
+                this.aplicarPreset((b as HTMLElement).dataset.preset as string);
+                this.destacarPreset();
+                this.carregar();
+            }));
+            el('btn-aplicar').addEventListener('click', () => {
+                this.estado.preset = 'custom';
+                this.estado.inicio = (el('filtro-inicio') as HTMLInputElement).value;
+                this.estado.fim = (el('filtro-fim') as HTMLInputElement).value;
+                this.destacarPreset();
+                this.carregar();
+            });
+            el('chk-comparar').addEventListener('change', () => {
+                this.estado.comparar = (el('chk-comparar') as HTMLInputElement).checked;
+                this.carregar();
+            });
+            document.querySelectorAll('.filtro-sel').forEach(s => s.addEventListener('change', () => {
+                const chave = s.id.replace('f-', '');
+                this.setFiltro(chave, (s as HTMLSelectElement).value);
+            }));
+            el('btn-limpar').addEventListener('click', () => {
+                FILTROS.forEach(f => this.estado[f] = '');
+                this.carregar();
+            });
+            document.querySelectorAll('.tab-btn').forEach(b => b.addEventListener('click', () =>
+                this.mostrarAba((b as HTMLElement).dataset.tab as string)));
+            el('sel-dimensao').addEventListener('change', () => this.desenharDimensao());
+            el('sel-ordem').addEventListener('change', () => this.desenharTabelaTecnicos());
+            window.addEventListener('resize', () => Object.values(this.charts).forEach((c: any) => c.resize()));
+        }
+
+        private mostrarAba(aba: string): void {
+            this.abaAtual = aba;
+            document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('hidden', p.id !== `tab-${aba}`));
+            document.querySelectorAll('.tab-btn').forEach(b => {
+                const ativo = (b as HTMLElement).dataset.tab === aba;
+                b.classList.toggle('text-cyan-400', ativo);
+                b.classList.toggle('border-b-2', ativo);
+                b.classList.toggle('border-cyan-400', ativo);
+                b.classList.toggle('text-slate-500', !ativo);
+            });
+            if (this.dados && !this.dados.vazio) this.desenharAba(aba);
+        }
+
+        // ---------------- dados ----------------
+        private async carregar(): Promise<void> {
+            const consulta = this.params().toString();
+            window.history.replaceState(null, '', `?${this.params(true).toString()}`);
+            (el('btn-exportar') as HTMLAnchorElement).href = `/api/dashboard/exportar/?${consulta}`;
+
             try {
-                const res = await (await fetch(`/api/dashboard/?inicio=${inicio}&fim=${fim}`)).json();
-
-                if (res.status === 'sucesso') {
-                    if (res.vazio) {
-                        alert("Não há dados no período selecionado.");
-                        return;
-                    }
-                    this.dadosCache = res.dados;
-                    this.atualizarKPIs(res.dados);
-                    this.renderizarTecnicos();
-                    this.renderizarAnalistas();
-                    this.renderizarStatus();
-                    this.renderizarClientes();
-                    this.renderizarPecas();
-                } else {
-                    alert("Erro: " + res.mensagem);
+                const resposta = await fetch(`/api/dashboard/?${consulta}`);
+                const res = await resposta.json();
+                if (res.status !== 'sucesso') {
+                    alert('Erro: ' + res.mensagem);
+                    return;
                 }
-            } catch (e) {
-                console.error("Erro na busca de dados", e);
+                this.dados = res.dados;
+                this.preencherOpcoes(res.dados.opcoes);
+                this.desenharFiltrosAtivos();
+
+                const vazio = !!res.dados.vazio;
+                el('estado-vazio').classList.toggle('hidden', !vazio);
+                el('conteudo-dashboard').classList.toggle('hidden', vazio);
+                if (vazio) { el('periodo-info').innerText = ''; return; }
+
+                this.desenharPeriodo();
+                this.desenharKpis();
+                this.desenharAba(this.abaAtual);
+            } catch (erro) {
+                console.error('Erro na busca de dados', erro);
             }
         }
 
-        private atualizarKPIs(d: any): void {
-            (document.getElementById('kpi-total') as HTMLElement).innerText = d.resumo.total;
-            (document.getElementById('kpi-erros') as HTMLElement).innerText = d.resumo.erros;
-            
-            (document.getElementById('kpi-cliente-nome') as HTMLElement).innerText = d.top_cliente.nome || 'Nenhum';
-            (document.getElementById('kpi-cliente-equip') as HTMLElement).innerHTML = `Equipamento: <span class="font-bold text-white">${d.top_cliente.equipamento_top || '-'}</span>`;
-            (document.getElementById('kpi-cliente-defeito') as HTMLElement).innerHTML = `Pior Defeito: <span class="font-bold">${d.top_cliente.defeito_top || '-'}</span>`;
-
-            // Agora a Peça recebe o Modelo junto
-            (document.getElementById('kpi-peca-nome') as HTMLElement).innerText = d.top_peca_kpi.nome;
-            (document.getElementById('kpi-peca-modelo') as HTMLElement).innerHTML = `Modelo: <span class="font-bold">${d.top_peca_kpi.modelo}</span>`;
-            (document.getElementById('kpi-peca-qtd') as HTMLElement).innerText = `${d.top_peca_kpi.total} trocas efetuadas`;
+        private preencherOpcoes(op: any): void {
+            const montar = (id: string, titulo: string, itens: any[], chave: string) => {
+                const sel = el(id) as HTMLSelectElement;
+                sel.innerHTML = `<option value="">${titulo}</option>` + itens.map(i =>
+                    `<option value="${esc(i.id)}">${esc(i.nome)}</option>`).join('');
+                sel.value = this.estado[chave] || '';
+            };
+            montar('f-prestadora', 'Todas as prestadoras', op.prestadoras, 'prestadora');
+            montar('f-tecnico', 'Todos os técnicos', op.tecnicos, 'tecnico');
+            montar('f-cliente', 'Todos os clientes', op.clientes, 'cliente');
+            montar('f-estado', 'Todos os estados', op.estados.map((e: string) => ({ id: e, nome: e })), 'estado');
+            montar('f-equipamento', 'Todos os modelos', op.equipamentos, 'equipamento');
+            montar('f-analista', 'Todos os analistas', op.analistas, 'analista');
         }
 
-        private renderizarTecnicos(): void {
-            const ctx = (document.getElementById('chartTecnicos') as HTMLCanvasElement).getContext('2d');
-            const modo = (document.getElementById('toggle-tecnico') as HTMLSelectElement).value;
-            
-            if (this.charts['tecnicos']) this.charts['tecnicos'].destroy();
-
-            const labels = this.dadosCache.tecnicos.map((t: any) => t.nome);
-            const valores = this.dadosCache.tecnicos.map((t: any) => modo === 'erros' ? t.erros : t.sucessos);
-            const cor = modo === 'erros' ? '#f43f5e' : '#10b981';
-
-            this.charts['tecnicos'] = new Chart(ctx, {
-                type: 'bar',
-                data: { labels: labels, datasets: [{ label: modo === 'erros' ? 'Erros' : 'Sucessos', data: valores, backgroundColor: cor, borderRadius: 4 }] },
-                options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+        private desenharFiltrosAtivos(): void {
+            const caixa = el('filtros-ativos');
+            caixa.innerHTML = '';
+            let algum = false;
+            FILTROS.forEach(f => {
+                if (!this.estado[f]) return;
+                algum = true;
+                const sel = el(`f-${f}`) as HTMLSelectElement;
+                const texto = sel.selectedOptions[0] ? sel.selectedOptions[0].text : this.estado[f];
+                const chip = document.createElement('button');
+                chip.className = 'flex items-center gap-1 bg-cyan-500/10 border border-cyan-500/40 text-cyan-300 text-[11px] px-2 py-1 rounded-full';
+                chip.innerHTML = `<span>${esc(ROTULO_FILTRO[f])}: <b>${esc(texto)}</b></span><span class="text-cyan-500">✕</span>`;
+                chip.addEventListener('click', () => this.setFiltro(f, ''));
+                caixa.appendChild(chip);
             });
+            if (!algum) caixa.innerHTML = '<span class="text-[11px] text-slate-600">nenhum (clique em um gráfico para filtrar)</span>';
+            el('btn-limpar').classList.toggle('hidden', !algum);
         }
 
-        // AGORA ANALISTAS TÊM FILTRO IGUAL AOS TÉCNICOS
-        private renderizarAnalistas(): void {
-            const ctx = (document.getElementById('chartAnalistas') as HTMLCanvasElement).getContext('2d');
-            const modo = (document.getElementById('toggle-analista') as HTMLSelectElement).value;
+        private desenharPeriodo(): void {
+            const m = this.dados.meta;
+            const br = (s: string) => s.split('-').reverse().join('/');
+            const gran: any = { dia: 'dia', semana: 'semana', mes: 'mês' };
+            let txt = `${br(m.inicio)} a ${br(m.fim)} · agrupado por ${gran[m.granularidade]}`;
+            if (m.anterior) txt += ` · comparado a ${br(m.anterior.inicio)} a ${br(m.anterior.fim)}`;
+            el('periodo-info').innerText = txt;
+        }
 
-            if (this.charts['analistas']) this.charts['analistas'].destroy();
+        // ---------------- KPIs ----------------
+        private delta(id: string, kpi: any, tipo: 'pct' | 'pp', menorMelhor: boolean | null): void {
+            const alvo = el(id);
+            if (kpi.delta === null || kpi.delta === undefined) { alvo.innerHTML = ''; return; }
+            const valor = tipo === 'pct' ? kpi.delta_pct : kpi.delta;
+            if (valor === null || valor === undefined) { alvo.innerHTML = ''; return; }
+            const sobe = valor > 0;
+            const zero = Math.abs(valor) < 0.05;
+            let cor = 'text-slate-400';
+            if (!zero && menorMelhor !== null) cor = (sobe === menorMelhor) ? 'text-rose-400' : 'text-emerald-400';
+            const seta = zero ? '■' : (sobe ? '▲' : '▼');
+            const sinal = sobe ? '+' : '';
+            const unidade = tipo === 'pct' ? '%' : ' p.p.';
+            alvo.innerHTML = `<span class="${cor} font-bold">${seta} ${sinal}${String(valor).replace('.', ',')}${unidade}</span> <span class="text-slate-500">vs. período anterior</span>`;
+        }
 
-            const labels = this.dadosCache.analistas.map((a: any) => a.nome);
-            
-            let valores, cor, legenda;
-            if (modo === 'erros') {
-                valores = this.dadosCache.analistas.map((a: any) => a.erros);
-                cor = '#f43f5e'; legenda = 'Com Defeito';
-            } else if (modo === 'sucessos') {
-                valores = this.dadosCache.analistas.map((a: any) => a.sucessos);
-                cor = '#10b981'; legenda = 'Funcionais';
-            } else {
-                valores = this.dadosCache.analistas.map((a: any) => a.total);
-                cor = '#8b5cf6'; legenda = 'Total Triagens';
+        private desenharKpis(): void {
+            const k = this.dados.kpis;
+            el('k-triagens').innerText = String(k.triagens.valor);
+            this.delta('k-triagens-delta', k.triagens, 'pct', null);
+            el('k-triagens-sub').innerText = `${k.defeitos} com defeito · ${k.nff} NFF`;
+
+            el('k-nff').innerText = pct(k.taxa_nff.valor);
+            this.delta('k-nff-delta', k.taxa_nff, 'pp', true);
+            (el('k-nff-marcador') as HTMLElement).style.left = `${Math.min(99, Math.max(0, k.taxa_nff.valor))}%`;
+
+            el('k-div').innerText = k.comparaveis ? pct(k.divergencia.valor) : '--';
+            this.delta('k-div-delta', k.divergencia, 'pp', true);
+            el('k-div-sub').innerText = k.comparaveis ? `${k.divergentes} de ${k.comparaveis} comparáveis` : 'sem diagnósticos comparáveis';
+
+            el('k-reinc').innerText = String(k.reincidencia.series);
+            el('k-reinc-sub').innerText = k.reincidencia.series
+                ? `${k.reincidencia.triagens} triagens (${pct(k.reincidencia.pct)} do total)` : 'nenhuma série repetida';
+
+            const a = k.tecnicos_alerta;
+            el('k-alerta').innerText = `${a.criticos + a.atencao}`;
+            el('k-alerta-sub').innerText = `${a.criticos} crítico(s), ${a.atencao} atenção · ${a.avaliados} avaliados`;
+
+            this.desenharSpark('spark-triagens', this.dados.serie.pontos.map((p: any) => p.total), COR.ciano);
+            this.desenharSpark('spark-nff', this.dados.serie.pontos.map((p: any) => p.taxa_nff), COR.rosa);
+        }
+
+        private desenharSpark(id: string, valores: any[], cor: string): void {
+            const c = this.grafico(id);
+            c.setOption({
+                animation: false, grid: { left: 0, right: 0, top: 4, bottom: 2 },
+                xAxis: { type: 'category', show: false, data: valores.map((_, i) => i) },
+                yAxis: { type: 'value', show: false, min: 0 },
+                series: [{ type: 'line', data: valores, smooth: true, symbol: 'none', connectNulls: true,
+                    lineStyle: { color: cor, width: 2 }, areaStyle: { color: cor, opacity: 0.15 } }]
+            }, true);
+        }
+
+        // ---------------- gráficos ----------------
+        private grafico(id: string): any {
+            const dom = el(id);
+            let c = this.charts[id];
+            if (!c || c.getDom() !== dom) {
+                if (c) c.dispose();
+                c = echarts.init(dom, null, { renderer: 'canvas' });
+                this.charts[id] = c;
             }
+            return c;
+        }
 
-            this.charts['analistas'] = new Chart(ctx, {
-                type: 'bar',
-                data: { labels: labels, datasets: [{ label: legenda, data: valores, backgroundColor: cor, borderRadius: 4 }] },
-                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+        private desenharAba(aba: string): void {
+            if (aba === 'geral') { this.desenharInsights(); this.desenharTendencia(); this.desenharDimensao(); }
+            if (aba === 'tecnicos') { this.desenharFunil(); this.desenharTabelaTecnicos(); }
+            if (aba === 'causas') { this.desenharPareto(); this.desenharTreemap(); this.desenharTransicoes(); this.desenharReincidencia(); }
+            if (aba === 'detalhe') this.desenharRecentes();
+            setTimeout(() => Object.values(this.charts).forEach((c: any) => c.resize()), 50);
+        }
+
+        private estiloBase(): any {
+            return {
+                textStyle: { color: COR.texto },
+                tooltip: { backgroundColor: '#0f172a', borderColor: COR.eixo, textStyle: { color: '#e2e8f0', fontSize: 12 } }
+            };
+        }
+
+        private desenharInsights(): void {
+            const caixa = el('lista-insights');
+            const itens: any[] = this.dados.insights;
+            if (!itens.length) { caixa.innerHTML = '<p class="text-xs text-slate-500">Poucos dados para gerar insights neste recorte.</p>'; return; }
+            caixa.innerHTML = itens.map((i, idx) => {
+                const n = NIVEL[i.nivel];
+                const botao = i.filtro ? `<button data-idx="${idx}" class="btn-insight mt-1 text-[10px] font-bold uppercase text-cyan-400 hover:text-cyan-300">Filtrar por isso →</button>` : '';
+                return `<div class="border-l-4 ${n.borda} bg-[#0f172a] rounded-r-lg px-3 py-2">
+                    <p class="text-xs font-bold text-slate-100"><span class="${n.cor} mr-1">${n.icone}</span>${esc(i.titulo)}</p>
+                    <p class="text-[11px] text-slate-400 mt-0.5">${esc(i.texto)}</p>${botao}</div>`;
+            }).join('');
+            caixa.querySelectorAll('.btn-insight').forEach(b => b.addEventListener('click', () => {
+                const filtro = itens[parseInt((b as HTMLElement).dataset.idx as string)].filtro;
+                Object.keys(filtro).forEach(k => this.estado[k] = String(filtro[k]));
+                this.carregar();
+            }));
+        }
+
+        private desenharTendencia(): void {
+            const pontos: any[] = this.dados.serie.pontos;
+            const ref = this.dados.meta.referencia_nff;
+            const c = this.grafico('chart-tendencia');
+            c.setOption({
+                ...this.estiloBase(),
+                grid: { left: 44, right: 44, top: 36, bottom: pontos.length > 14 ? 64 : 34 },
+                legend: { top: 0, textStyle: { color: COR.texto }, data: ['Triagens', 'Taxa de NFF'] },
+                tooltip: { ...this.estiloBase().tooltip, trigger: 'axis' },
+                xAxis: { type: 'category', data: pontos.map(p => p.rotulo), axisLine: { lineStyle: { color: COR.eixo } }, axisLabel: { color: COR.texto } },
+                yAxis: [
+                    { type: 'value', name: 'Triagens', minInterval: 1, splitLine: { lineStyle: { color: COR.eixo, opacity: 0.4 } }, axisLabel: { color: COR.texto } },
+                    { type: 'value', name: 'NFF %', min: 0, max: 100, splitLine: { show: false }, axisLabel: { color: COR.texto, formatter: '{value}%' } }
+                ],
+                dataZoom: pontos.length > 14 ? [{ type: 'inside' }, { type: 'slider', height: 18, bottom: 8, borderColor: COR.eixo, textStyle: { color: COR.texto } }] : [],
+                series: [
+                    { name: 'Triagens', type: 'bar', data: pontos.map(p => p.total), itemStyle: { color: COR.ciano, opacity: 0.75, borderRadius: [3, 3, 0, 0] } },
+                    { name: 'Taxa de NFF', type: 'line', yAxisIndex: 1, data: pontos.map(p => p.taxa_nff), smooth: false, connectNulls: false,
+                      symbolSize: 7, lineStyle: { color: COR.rosa, width: 2 }, itemStyle: { color: COR.rosa },
+                      markArea: { silent: true, itemStyle: { color: 'rgba(251,191,36,0.08)' },
+                          label: { color: COR.ambar, fontSize: 10, position: 'insideTopRight', formatter: 'referência 20%–50%' },
+                          data: [[{ yAxis: ref.min }, { yAxis: ref.max }]] },
+                      markLine: { silent: true, symbol: 'none', lineStyle: { color: COR.cinza, type: 'dashed' },
+                          label: { color: COR.texto, formatter: `média ${this.dados.meta.p_medio}%` }, data: [{ yAxis: this.dados.meta.p_medio }] } }
+                ]
+            }, true);
+        }
+
+        private desenharDimensao(): void {
+            const chave = (el('sel-dimensao') as HTMLSelectElement).value;
+            const itens: any[] = this.dados.dimensoes[chave] || [];
+            const c = this.grafico('chart-dimensao');
+            c.off('click');
+            c.setOption({
+                ...this.estiloBase(),
+                grid: { left: 8, right: 60, top: 28, bottom: 8, containLabel: true },
+                legend: { top: 0, textStyle: { color: COR.texto } },
+                tooltip: { ...this.estiloBase().tooltip, trigger: 'axis', axisPointer: { type: 'shadow' },
+                    formatter: (ps: any[]) => {
+                        const d = itens[ps[0].dataIndex];
+                        return `<b>${esc(d.nome)}</b><br/>${d.total} triagens<br/>NFF: <b>${pct(d.taxa_nff)}</b> (IC 95%: ${pct(d.ic_inf)} a ${pct(d.ic_sup)})<br/>${STATUS[d.status].rotulo}`;
+                    } },
+                xAxis: { type: 'value', minInterval: 1, splitLine: { lineStyle: { color: COR.eixo, opacity: 0.4 } }, axisLabel: { color: COR.texto } },
+                yAxis: { type: 'category', inverse: true, data: itens.map(i => i.nome), axisLabel: { color: '#cbd5e1', width: 150, overflow: 'truncate' }, axisLine: { lineStyle: { color: COR.eixo } } },
+                series: [
+                    { name: 'Defeito confirmado', type: 'bar', stack: 't', data: itens.map(i => i.acertos), itemStyle: { color: COR.ciano } },
+                    { name: 'Peça funcional (NFF)', type: 'bar', stack: 't',
+                      data: itens.map(i => ({ value: i.nff, taxa: i.taxa_nff })),
+                      itemStyle: { color: COR.rosa }, label: { show: true, position: 'right', color: '#e2e8f0', formatter: (p: any) => pct(p.data.taxa) } }
+                ]
+            }, true);
+            c.on('click', (p: any) => {
+                const d = itens[p.dataIndex];
+                if (d) this.setFiltro(chave, String(d.id));
             });
         }
 
-        private renderizarStatus(): void {
-            const ctx = (document.getElementById('chartStatus') as HTMLCanvasElement).getContext('2d');
-            if (this.charts['status']) this.charts['status'].destroy();
-
-            this.charts['status'] = new Chart(ctx, {
-                type: 'doughnut',
-                data: { labels: ['Funcional', 'Com Defeito'], datasets: [{ data: [this.dadosCache.resumo.funcionais, this.dadosCache.resumo.erros], backgroundColor: ['#10b981', '#f43f5e'], borderWidth: 0 }] },
-                options: { responsive: true, maintainAspectRatio: false, cutout: '75%', plugins: { legend: { position: 'bottom' } } }
-            });
-        }
-
-        // GRÁFICO DE CLIENTES AGORA É EMPILHADO (STACKED) MOSTRANDO ERROS VS SUCESSOS
-        private renderizarClientes(): void {
-            const ctx = (document.getElementById('chartClientes') as HTMLCanvasElement).getContext('2d');
-            if (this.charts['clientes']) this.charts['clientes'].destroy();
-
-            const labels = this.dadosCache.clientes_grafico.map((c: any) => c.nome);
-            const dataSucessos = this.dadosCache.clientes_grafico.map((c: any) => c.sucessos);
-            const dataErros = this.dadosCache.clientes_grafico.map((c: any) => c.erros);
-
-            this.charts['clientes'] = new Chart(ctx, {
-                type: 'bar',
-                data: { 
-                    labels: labels, 
-                    datasets: [
-                        { label: 'Funcional', data: dataSucessos, backgroundColor: '#10b981', borderRadius: 2 },
-                        { label: 'Com Defeito', data: dataErros, backgroundColor: '#f43f5e', borderRadius: 2 }
-                    ] 
-                },
-                options: { 
-                    responsive: true, 
-                    maintainAspectRatio: false, 
-                    plugins: { legend: { display: true, position: 'top', labels: { boxWidth: 12 } } },
-                    scales: {
-                        x: { stacked: true },
-                        y: { stacked: true }
-                    }
+        private desenharFunil(): void {
+            const tecnicos: any[] = this.dados.tecnicos;
+            const p = this.dados.meta.p_medio / 100;
+            const nmax = Math.max(10, ...tecnicos.map(t => t.total)) * 1.15;
+            const limite = (z: number, n: number) => 100 * (p + z * Math.sqrt(p * (1 - p) / n));
+            const curva = (z: number) => {
+                const pts: number[][] = [];
+                for (let i = 0; i <= 40; i++) {
+                    const n = Math.max(this.dados.meta.min_amostra, Math.round(this.dados.meta.min_amostra + (nmax - this.dados.meta.min_amostra) * i / 40));
+                    pts.push([n, Math.min(100, Math.max(0, limite(z, n)))]);
                 }
+                return pts;
+            };
+            const linha = (nome: string, z: number, cor: string, tipo: string) => ({
+                name: nome, type: 'line', data: curva(z), symbol: 'none', silent: true, tooltip: { show: false },
+                lineStyle: { color: cor, type: tipo, width: 1.5 }
+            });
+            const c = this.grafico('chart-funil');
+            c.off('click');
+            c.setOption({
+                ...this.estiloBase(),
+                grid: { left: 48, right: 24, top: 40, bottom: 44 },
+                legend: { top: 0, textStyle: { color: COR.texto, fontSize: 10 }, data: ['Limite 3σ', 'Limite 2σ', 'Limite inferior 2σ'] },
+                tooltip: { ...this.estiloBase().tooltip, trigger: 'item',
+                    formatter: (pt: any) => {
+                        if (pt.seriesType !== 'scatter') return '';
+                        const v = pt.data.value;
+                        return `<b>${esc(v[2])}</b><br/>${v[0]} triagens<br/>NFF: <b>${pct(v[1])}</b> (IC 95%: ${pct(v[5])} a ${pct(v[6])})<br/>${STATUS[v[3]].rotulo}${v[7] !== null ? ` (z = ${v[7]})` : ''}`;
+                    } },
+                xAxis: { type: 'value', name: 'Triagens do técnico (n)', nameLocation: 'middle', nameGap: 26, min: 0, max: Math.ceil(nmax),
+                    splitLine: { show: false }, axisLabel: { color: COR.texto }, axisLine: { lineStyle: { color: COR.eixo } } },
+                yAxis: { type: 'value', name: 'NFF %', min: 0, max: 100, splitLine: { lineStyle: { color: COR.eixo, opacity: 0.4 } }, axisLabel: { color: COR.texto, formatter: '{value}%' } },
+                series: [
+                    linha('Limite 3σ', 3, COR.rosa, 'dashed'),
+                    linha('Limite 2σ', 2, COR.ambar, 'dashed'),
+                    linha('Limite inferior 2σ', -2, COR.verde, 'dotted'),
+                    { name: 'Técnicos', type: 'scatter', symbolSize: 13,
+                      data: tecnicos.map(t => ({
+                          value: [t.total, t.taxa_nff, t.nome, t.status, t.id, t.ic_inf, t.ic_sup, t.z],
+                          itemStyle: { color: STATUS[t.status].cor, borderColor: '#0f172a', borderWidth: 1 },
+                          label: { show: ['critico', 'atencao', 'destaque'].includes(t.status), formatter: t.nome, position: 'right', color: '#e2e8f0', fontSize: 10 }
+                      })),
+                      markLine: { silent: true, symbol: 'none', lineStyle: { color: COR.cinza }, label: { color: COR.texto, formatter: `média ${this.dados.meta.p_medio}%` }, data: [{ yAxis: this.dados.meta.p_medio }] } }
+                ]
+            }, true);
+            c.on('click', (pt: any) => {
+                if (pt.seriesType === 'scatter') this.setFiltro('tecnico', String(pt.data.value[4]));
             });
         }
 
-        // PEÇAS AGORA MOSTRAM NOME E MODELO NO GRÁFICO
-        private renderizarPecas(): void {
-            const ctx = (document.getElementById('chartPecas') as HTMLCanvasElement).getContext('2d');
-            if (this.charts['pecas']) this.charts['pecas'].destroy();
+        private desenharTabelaTecnicos(): void {
+            const ordem = (el('sel-ordem') as HTMLSelectElement).value;
+            const sev: any = { critico: 0, atencao: 1, normal: 2, destaque: 3, insuficiente: 4 };
+            const lista: any[] = [...this.dados.tecnicos];
+            if (ordem === 'ic') lista.sort((a, b) => (sev[a.status] - sev[b.status]) || (b.ic_inf - a.ic_inf));
+            if (ordem === 'taxa') lista.sort((a, b) => b.taxa_nff - a.taxa_nff);
+            if (ordem === 'volume') lista.sort((a, b) => b.total - a.total);
+            if (ordem === 'melhor') lista.sort((a, b) => (b.status === 'destaque' ? 1 : 0) - (a.status === 'destaque' ? 1 : 0) || a.taxa_nff - b.taxa_nff);
 
-            // Formata o label para ficar: "Teclado (Thinkpad T14)"
-            const labels = this.dadosCache.pecas.map((p: any) => `${p.nome} (${p.modelo})`);
+            const corpo = el('tabela-tecnicos');
+            corpo.innerHTML = lista.map(t => {
+                const s = STATUS[t.status];
+                return `<tr class="linha-tec cursor-pointer hover:bg-slate-800/50" data-id="${t.id}">
+                    <td class="py-2 pr-3"><div class="font-bold text-slate-200">${esc(t.nome)}</div><div class="text-[10px] text-slate-500">${esc(t.prestadora)}</div></td>
+                    <td class="py-2 pr-3 text-right text-slate-300">${t.total}</td>
+                    <td class="py-2 pr-3"><div class="flex items-center gap-2">
+                        <div class="relative w-28 h-2 bg-slate-700/60 rounded" title="IC 95%: ${pct(t.ic_inf)} a ${pct(t.ic_sup)}">
+                            <div class="absolute h-2 rounded bg-rose-500/40" style="left:${t.ic_inf}%;width:${Math.max(1, t.ic_sup - t.ic_inf)}%"></div>
+                            <div class="absolute -top-0.5 h-3 w-1 rounded bg-white" style="left:${Math.min(99, t.taxa_nff)}%"></div>
+                        </div><span class="text-slate-200 font-bold">${pct(t.taxa_nff)}</span></div></td>
+                    <td class="py-2 pr-3 text-right text-slate-300">${t.divergencias}</td>
+                    <td class="py-2"><span class="border ${s.classe} text-[10px] font-bold px-2 py-0.5 rounded-full">${s.rotulo}</span></td></tr>`;
+            }).join('');
+            corpo.querySelectorAll('.linha-tec').forEach(tr => tr.addEventListener('click', () =>
+                this.setFiltro('tecnico', (tr as HTMLElement).dataset.id as string)));
+        }
 
-            this.charts['pecas'] = new Chart(ctx, {
-                type: 'bar',
-                data: { labels: labels, datasets: [{ label: 'Trocas', data: this.dadosCache.pecas.map((p: any) => p.total), backgroundColor: '#f59e0b', borderRadius: 4 }] },
-                options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
-            });
+        private desenharPareto(): void {
+            const p = this.dados.pareto_defeitos;
+            el('pareto-nota').innerText = p.total
+                ? `${p.total} defeitos confirmados com descrição${p.sem_registro ? ` (${p.sem_registro} sem descrição ficaram de fora)` : ''}. A linha mostra o acumulado.`
+                : 'Sem defeitos confirmados com descrição neste recorte.';
+            const c = this.grafico('chart-pareto');
+            c.setOption({
+                ...this.estiloBase(),
+                grid: { left: 40, right: 44, top: 28, bottom: 90 },
+                tooltip: { ...this.estiloBase().tooltip, trigger: 'axis', axisPointer: { type: 'shadow' } },
+                xAxis: { type: 'category', data: p.itens.map((i: any) => i.rotulo), axisLabel: { color: '#cbd5e1', rotate: 35, width: 110, overflow: 'truncate', fontSize: 10 }, axisLine: { lineStyle: { color: COR.eixo } } },
+                yAxis: [
+                    { type: 'value', minInterval: 1, splitLine: { lineStyle: { color: COR.eixo, opacity: 0.4 } }, axisLabel: { color: COR.texto } },
+                    { type: 'value', min: 0, max: 100, splitLine: { show: false }, axisLabel: { color: COR.texto, formatter: '{value}%' } }
+                ],
+                series: [
+                    { name: 'Ocorrências', type: 'bar', data: p.itens.map((i: any) => i.qtd), itemStyle: { color: COR.ciano, borderRadius: [3, 3, 0, 0] } },
+                    { name: 'Acumulado', type: 'line', yAxisIndex: 1, data: p.itens.map((i: any) => i.acumulado_pct), symbolSize: 6,
+                      lineStyle: { color: COR.ambar }, itemStyle: { color: COR.ambar },
+                      markLine: { silent: true, symbol: 'none', lineStyle: { color: COR.cinza, type: 'dashed' }, label: { color: COR.texto, formatter: '80%' }, data: [{ yAxis: 80 }] } }
+                ]
+            }, true);
+        }
+
+        private corNff(taxa: number): string {
+            // verde (0%) -> âmbar (35%) -> vermelho (70%+)
+            const t = Math.min(1, taxa / 70);
+            const mix = (a: number[], b: number[], k: number) => a.map((v, i) => Math.round(v + (b[i] - v) * k));
+            const rgb = t < 0.5 ? mix([16, 185, 129], [245, 158, 11], t * 2) : mix([245, 158, 11], [225, 29, 72], (t - 0.5) * 2);
+            return `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
+        }
+
+        private desenharTreemap(): void {
+            const modelos: any[] = this.dados.modelos;
+            const c = this.grafico('chart-treemap');
+            c.off('click');
+            c.setOption({
+                ...this.estiloBase(),
+                tooltip: { ...this.estiloBase().tooltip, formatter: (p: any) =>
+                    `<b>${esc(p.data.name)}</b><br/>PN ${esc(p.data.pn)}<br/>${p.data.value} triagens · NFF <b>${pct(p.data.taxa)}</b> (${p.data.nff})` },
+                series: [{ type: 'treemap', roam: false, nodeClick: false, breadcrumb: { show: false }, width: '100%', height: '100%',
+                    label: { show: true, color: '#fff', fontSize: 11, formatter: (p: any) => `${p.data.name}\n${pct(p.data.taxa)} NFF` },
+                    itemStyle: { borderColor: '#0f172a', borderWidth: 2, gapWidth: 2 },
+                    data: modelos.map(m => ({ name: m.modelo, pn: m.pn, id: m.id, value: m.total, nff: m.nff, taxa: m.taxa_nff,
+                        itemStyle: { color: this.corNff(m.taxa_nff) } })) }]
+            }, true);
+            c.on('click', (p: any) => { if (p.data && p.data.id) this.setFiltro('equipamento', String(p.data.id)); });
+        }
+
+        private desenharTransicoes(): void {
+            const t = this.dados.transicoes;
+            const caixa = el('lista-transicoes');
+            if (!t.itens.length) {
+                caixa.innerHTML = `<p class="text-xs text-slate-500">${t.comparaveis ? 'Nenhuma divergência entre campo e bancada neste recorte.' : 'Sem triagens com diagnóstico do técnico e defeito constatado preenchidos.'}</p>`;
+                return;
+            }
+            caixa.innerHTML = `<p class="text-[11px] text-slate-400 mb-1">${t.divergentes} de ${t.comparaveis} diagnósticos comparáveis divergem (${pct(t.pct_div)}).</p>` +
+                t.itens.map((i: any) => `<div>
+                    <div class="flex justify-between text-xs"><span class="text-slate-300"><span class="text-amber-300">${esc(i.diagnostico)}</span> → <span class="text-cyan-300">${esc(i.constatado)}</span></span><span class="text-slate-400 font-bold">${i.qtd}</span></div>
+                    <div class="h-1.5 bg-slate-700/60 rounded mt-1"><div class="h-1.5 rounded bg-amber-500/70" style="width:${i.pct}%"></div></div></div>`).join('');
+        }
+
+        private desenharReincidencia(): void {
+            const itens: any[] = this.dados.reincidencia.itens;
+            el('tabela-reincidencia').innerHTML = itens.length ? itens.map(i => `<tr>
+                <td class="py-2 font-mono text-slate-200">${esc(i.sn)}</td><td class="py-2 text-slate-300">${esc(i.modelo)}</td>
+                <td class="py-2 text-right text-indigo-300 font-bold">${i.vezes}</td><td class="py-2 text-right text-slate-400">${esc(i.ultima)}</td></tr>`).join('')
+                : '<tr><td colspan="4" class="py-3 text-slate-500">Nenhuma série repetida neste recorte.</td></tr>';
+        }
+
+        private desenharRecentes(): void {
+            const itens: any[] = this.dados.recentes;
+            el('tabela-recentes').innerHTML = itens.map(t => {
+                const resultado = t.status === 1
+                    ? '<span class="border bg-rose-500/15 text-rose-300 border-rose-500/40 text-[10px] font-bold px-2 py-0.5 rounded-full">NFF</span>'
+                    : '<span class="border bg-cyan-500/15 text-cyan-300 border-cyan-500/40 text-[10px] font-bold px-2 py-0.5 rounded-full">Defeito</span>';
+                const diverg = t.divergente ? ' <span title="Diagnóstico diverge da bancada" class="text-amber-300 font-bold">≠</span>' : '';
+                return `<tr class="hover:bg-slate-800/50">
+                    <td class="py-2 pr-3 text-slate-400">${esc(t.data)}</td><td class="py-2 pr-3 text-slate-200">${esc(t.ticket)}</td>
+                    <td class="py-2 pr-3 font-mono text-slate-300">${esc(t.sn)}</td><td class="py-2 pr-3 text-slate-300">${esc(t.tecnico)}</td>
+                    <td class="py-2 pr-3 text-slate-300">${esc(t.cliente)}</td><td class="py-2 pr-3 text-slate-300">${esc(t.modelo)}</td>
+                    <td class="py-2 pr-3">${resultado}${diverg}</td>
+                    <td class="py-2"><a class="text-cyan-400 hover:text-cyan-300 font-bold" href="/visualizar/?id=${t.id}">abrir</a></td></tr>`;
+            }).join('');
         }
     }
 
