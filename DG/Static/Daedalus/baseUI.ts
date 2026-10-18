@@ -1,3 +1,8 @@
+function escapeHtml(valor: any): string {
+    return String(valor ?? '').replace(/[&<>"']/g, (c) =>
+        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as Record<string, string>)[c]);
+}
+
 class BaseUI {
     constructor() {
         this.subMenuGerenciar();

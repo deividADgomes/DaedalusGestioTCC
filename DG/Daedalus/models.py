@@ -10,10 +10,24 @@ class Empresa(models.Model):
     def __str__(self):
         return self.razao_social
 
+class Peca(models.Model):
+    """Peça de reposição (catálogo). Uma peça pode ser usada por vários modelos de equipamento."""
+    id_peca = models.AutoField(primary_key=True)
+    part_number = models.CharField(max_length=100, unique=True)
+    descricao = models.CharField(max_length=255, blank=True, default='')
+
+    class Meta:
+        ordering = ['part_number']
+
+    def __str__(self):
+        return f"{self.part_number} - {self.descricao}" if self.descricao else self.part_number
+
+
 class Equipamento(models.Model):
     id_equipamento = models.AutoField(primary_key=True)
     pn = models.CharField(max_length=100)
     modelo = models.CharField(max_length=150)
+    pecas = models.ManyToManyField(Peca, related_name='equipamentos', blank=True)
 
     def __str__(self):
         return f"{self.pn} - {self.modelo}"
@@ -58,7 +72,9 @@ class Triagem(models.Model):
     status = models.IntegerField()
     data_triagem = models.DateTimeField(default=timezone.now)
     troca = models.CharField(max_length=255, null=True, blank=True)
-    
+    # Peça do catálogo do modelo que foi trocada em campo (alimenta o dashboard); `troca` segue como texto livre
+    peca_trocada = models.ForeignKey(Peca, on_delete=models.SET_NULL, null=True, blank=True, related_name='triagens')
+
     # Textos longos
     defeito_usuario = models.TextField(null=True, blank=True)
     defeito_tecnico = models.TextField(null=True, blank=True)
@@ -77,3 +93,19 @@ class SolicitacaoSenha(models.Model):
     funcionario = models.ForeignKey(Funcionario, on_delete=models.CASCADE, related_name='solicitacoes_senha')
     data_solicitacao = models.DateTimeField(default=timezone.now)
     atendida = models.BooleanField(default=False)
+
+
+def _caminho_foto(instance, filename):
+    return f"triagens/{instance.triagem_id}/{filename}"
+
+
+class FotoTriagem(models.Model):
+    """Foto anexada a uma triagem (registro fotográfico do laudo)."""
+    id_foto = models.AutoField(primary_key=True)
+    triagem = models.ForeignKey(Triagem, on_delete=models.CASCADE, related_name='fotos')
+    arquivo = models.FileField(upload_to=_caminho_foto)
+    legenda = models.CharField(max_length=150, blank=True, default='')
+    criado_em = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ['criado_em', 'id_foto']

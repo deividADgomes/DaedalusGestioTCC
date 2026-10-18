@@ -299,6 +299,7 @@
             }
             if (aba === 'causas') {
                 this.desenharPareto();
+                this.desenharPecas();
                 this.desenharTreemap();
                 this.desenharTransicoes();
                 this.desenharReincidencia();
@@ -467,6 +468,17 @@
                     <td class="py-2"><span class="border ${s.classe} text-[10px] font-bold px-2 py-0.5 rounded-full">${s.rotulo}</span></td></tr>`;
             }).join('');
             corpo.querySelectorAll('.linha-tec').forEach(tr => tr.addEventListener('click', () => this.setFiltro('tecnico', tr.dataset.id)));
+        }
+        desenharPecas() {
+            const p = this.dados.pecas;
+            el('pecas-nota').innerText = p.itens.length
+                ? `${p.com_peca} triagens com peça do catálogo informada (${p.sem_peca} sem peça ficaram de fora). NFF = trocada, mas a bancada achou funcional.`
+                : 'Nenhuma triagem deste recorte tem peça do catálogo informada. Selecione a peça trocada na triagem.';
+            el('tabela-pecas').innerHTML = p.itens.map((i) => `<tr>
+                <td class="py-2 pr-3"><div class="font-mono text-cyan-400">${esc(i.part_number)}</div><div class="text-[10px] text-slate-500">${esc(i.descricao)}</div></td>
+                <td class="py-2 text-right text-slate-300">${i.trocas}</td>
+                <td class="py-2 text-right text-slate-300">${i.nff}</td>
+                <td class="py-2 pl-3"><span class="font-bold" style="color:${this.corNff(i.taxa_nff)}">${pct(i.taxa_nff)}</span></td></tr>`).join('');
         }
         desenharPareto() {
             const p = this.dados.pareto_defeitos;

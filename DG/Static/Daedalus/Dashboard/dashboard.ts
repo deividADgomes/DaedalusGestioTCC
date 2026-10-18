@@ -288,7 +288,7 @@ declare const echarts: any;
         private desenharAba(aba: string): void {
             if (aba === 'geral') { this.desenharInsights(); this.desenharTendencia(); this.desenharDimensao(); }
             if (aba === 'tecnicos') { this.desenharFunil(); this.desenharTabelaTecnicos(); }
-            if (aba === 'causas') { this.desenharPareto(); this.desenharTreemap(); this.desenharTransicoes(); this.desenharReincidencia(); }
+            if (aba === 'causas') { this.desenharPareto(); this.desenharPecas(); this.desenharTreemap(); this.desenharTransicoes(); this.desenharReincidencia(); }
             if (aba === 'detalhe') this.desenharRecentes();
             setTimeout(() => Object.values(this.charts).forEach((c: any) => c.resize()), 50);
         }
@@ -450,6 +450,18 @@ declare const echarts: any;
             }).join('');
             corpo.querySelectorAll('.linha-tec').forEach(tr => tr.addEventListener('click', () =>
                 this.setFiltro('tecnico', (tr as HTMLElement).dataset.id as string)));
+        }
+
+        private desenharPecas(): void {
+            const p = this.dados.pecas;
+            el('pecas-nota').innerText = p.itens.length
+                ? `${p.com_peca} triagens com peça do catálogo informada (${p.sem_peca} sem peça ficaram de fora). NFF = trocada, mas a bancada achou funcional.`
+                : 'Nenhuma triagem deste recorte tem peça do catálogo informada. Selecione a peça trocada na triagem.';
+            el('tabela-pecas').innerHTML = p.itens.map((i: any) => `<tr>
+                <td class="py-2 pr-3"><div class="font-mono text-cyan-400">${esc(i.part_number)}</div><div class="text-[10px] text-slate-500">${esc(i.descricao)}</div></td>
+                <td class="py-2 text-right text-slate-300">${i.trocas}</td>
+                <td class="py-2 text-right text-slate-300">${i.nff}</td>
+                <td class="py-2 pl-3"><span class="font-bold" style="color:${this.corNff(i.taxa_nff)}">${pct(i.taxa_nff)}</span></td></tr>`).join('');
         }
 
         private desenharPareto(): void {

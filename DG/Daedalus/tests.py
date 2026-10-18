@@ -1,17 +1,24 @@
 import json
+import shutil
+import tempfile
 import time
+from io import BytesIO
+from unittest import mock
 from datetime import datetime
 
 from django.contrib.auth.hashers import make_password
 from django.core import mail
 from django.test import Client, TestCase, override_settings
 from django.utils import timezone
+from django.core.files.uploadedfile import SimpleUploadedFile
 from docx import Document
+from PIL import Image
 
 from .analytics import classificar, intervalo_wilson, normalizar_texto
 from .dtos import CargoFuncionario, EquipamentoDTO, FuncionarioDTO, StatusPeca, TriagemDTO
-from .models import Empresa, Equipamento, Funcionario, SolicitacaoSenha, Tecnico, Triagem
-from .services import EquipamentoService, FuncionarioService, TriagemService
+from .models import Empresa, Equipamento, FotoTriagem, Funcionario, Peca, SolicitacaoSenha, Tecnico, Triagem
+from . import partsurfer
+from .services import EquipamentoService, FotoService, FuncionarioService, TriagemService
 
 
 # ------------------------------------------------------------------
@@ -520,3 +527,271 @@ class GestorTests(TestCase):
 
         rebaixar = {'id': alvo.id_funcionario, 'nome': 'Z', 'cargo': 'Funcionário', 'login': 1003, 'email': 'z@empresa.com'}
         self.assertEqual(post_json(self.client, '/api/funcionario/', rebaixar).status_code, 403)
+
+
+# ------------------------------------------------------------------
+# Peças por modelo e fotos da triagem
+# ------------------------------------------------------------------
+def imagem_teste(formato='PNG', tamanho=(40, 30), nome='foto.png', tipo='image/png'):
+    buf = BytesIO()
+    Image.new('RGB', tamanho, (200, 30, 30)).save(buf, format=formato)
+    return SimpleUploadedFile(nome, buf.getvalue(), content_type=tipo)
+
+
+class PecasPorModeloTests(TestCase):
+    def setUp(self):
+        self.func = criar_funcionario(900)
+        logar(self.client, 900)
+        self.equip = Equipamento.objects.create(pn='PN-9', modelo='Notebook Z')
+
+    def test_salvar_pecas_cria_normaliza_e_substitui(self):
+        r = post_json(self.client, '/api/modelo-equipamento/pecas/', {
+            'id_equipamento': self.equip.id_equipamento,
+            'pecas': [{'part_number': ' l12345-001 ', 'descricao': 'Bateria'},
+                      {'part_number': 'L12345-001', 'descricao': 'Bateria 3 células'},
+                      {'part_number': 'M99', 'descricao': 'Tela'}, {'part_number': '  '}]})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual([p['part_number'] for p in r.json()['dados']], ['L12345-001', 'M99'])
+        self.assertEqual(Peca.objects.get(part_number='L12345-001').descricao, 'Bateria 3 células')
+
+        # substituir: some M99 do modelo, mas a peça continua no catálogo
+        post_json(self.client, '/api/modelo-equipamento/pecas/', {
+            'id_equipamento': self.equip.id_equipamento, 'pecas': [{'part_number': 'L12345-001'}]})
+        self.assertEqual(self.equip.pecas.count(), 1)
+        self.assertTrue(Peca.objects.filter(part_number='M99').exists())
+
+    def test_mesma_peca_em_dois_modelos(self):
+        outro = Equipamento.objects.create(pn='PN-10', modelo='Notebook W')
+        for e in (self.equip, outro):
+            EquipamentoService.salvar_pecas(e.id_equipamento, [{'part_number': 'BAT-1'}])
+        self.assertEqual(Peca.objects.filter(part_number='BAT-1').count(), 1)
+        self.assertEqual(Peca.objects.get(part_number='BAT-1').equipamentos.count(), 2)
+
+    def test_listagem_traz_total_de_pecas(self):
+        EquipamentoService.salvar_pecas(self.equip.id_equipamento, [{'part_number': 'A'}, {'part_number': 'B'}])
+        dados = self.client.get('/api/modelo-equipamento/').json()['dados']
+        self.assertEqual(dados[0]['total_pecas'], 2)
+
+    def test_entradas_invalidas(self):
+        r = post_json(self.client, '/api/modelo-equipamento/pecas/',
+                      {'id_equipamento': self.equip.id_equipamento, 'pecas': 'x'})
+        self.assertEqual(r.status_code, 400)
+        r = post_json(self.client, '/api/modelo-equipamento/pecas/', {'id_equipamento': 99999, 'pecas': []})
+        self.assertEqual(r.status_code, 404)
+        self.assertEqual(self.client.get('/api/modelo-equipamento/pecas/').status_code, 400)
+
+    def test_exige_login(self):
+        self.assertEqual(Client().get('/api/modelo-equipamento/pecas/?id_equipamento=1').status_code, 401)
+
+    def test_triagem_so_aceita_peca_do_proprio_modelo(self):
+        EquipamentoService.salvar_pecas(self.equip.id_equipamento, [{'part_number': 'OK-1'}])
+        peca_ok = Peca.objects.get(part_number='OK-1')
+        peca_alheia = Peca.objects.create(part_number='ALHEIA')
+        base = TriagemDTO(n_ticket=1, nf=1, cidade='X', estado='SP', id_tecnico=0, id_cliente=0,
+                          id_analista_chamado=self.func.id_funcionario, id_analista_triagem=self.func.id_funcionario,
+                          id_equipamento=self.equip.id_equipamento, sn='S1', status_peca=StatusPeca.FUNCIONAL)
+        prest = Empresa.objects.create(cnpj='33333333000133', razao_social='P', tipo=1)
+        cli = Empresa.objects.create(cnpj='44444444000144', razao_social='C', tipo=2)
+        tec = Tecnico.objects.create(nome='T', empresa=prest)
+        base.id_tecnico, base.id_cliente = tec.id_tecnico, cli.id_empresa
+
+        base.id_peca_trocada = peca_alheia.id_peca
+        with self.assertRaises(ValueError):
+            TriagemService.salvar(base)
+        base.id_peca_trocada = peca_ok.id_peca
+        salvo = TriagemService.salvar(base)
+        self.assertEqual(Triagem.objects.get(pk=salvo.id_triagem).peca_trocada_id, peca_ok.id_peca)
+
+    def test_dashboard_lista_pecas_mais_trocadas(self):
+        EquipamentoService.salvar_pecas(self.equip.id_equipamento, [{'part_number': 'BAT-1', 'descricao': 'Bateria'}])
+        peca = Peca.objects.get(part_number='BAT-1')
+        criar_triagem(self.func, n_ticket=1, status=1, peca_trocada=peca)   # NFF
+        criar_triagem(self.func, n_ticket=2, status=2, peca_trocada=peca)   # defeito confirmado
+        criar_triagem(self.func, n_ticket=3, status=2)                      # sem peça do catálogo
+        dados = self.client.get('/api/dashboard/').json()
+        pecas = dados['pecas']
+        self.assertEqual(pecas['itens'][0]['part_number'], 'BAT-1')
+        self.assertEqual(pecas['itens'][0]['trocas'], 2)
+        self.assertEqual(pecas['itens'][0]['nff'], 1)
+        self.assertEqual(pecas['itens'][0]['taxa_nff'], 50.0)
+        self.assertEqual(pecas['sem_peca'], 1)
+
+
+class FotosTriagemTests(TestCase):
+    def setUp(self):
+        self.media = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.media, ignore_errors=True)
+        self.override = override_settings(MEDIA_ROOT=self.media)
+        self.override.enable()
+        self.addCleanup(self.override.disable)
+        self.func = criar_funcionario(950)
+        logar(self.client, 950)
+        self.tri = criar_triagem(self.func, n_ticket=77)
+
+    def enviar(self, arquivo, **extra):
+        return self.client.post('/api/triagem/fotos/', {'id_triagem': self.tri.id_triagem, 'arquivo': arquivo, **extra})
+
+    def test_upload_listagem_e_download(self):
+        r = self.enviar(imagem_teste(), legenda='Placa danificada')
+        self.assertEqual(r.status_code, 200, r.content)
+        foto = r.json()['dado']
+        self.assertEqual(foto['legenda'], 'Placa danificada')
+        arq = self.client.get(foto['url'])
+        self.assertEqual(arq.status_code, 200)
+        self.assertEqual(arq['Content-Type'], 'image/jpeg')
+        self.assertEqual(arq['X-Content-Type-Options'], 'nosniff')
+        # aparece na consulta da triagem
+        dado = self.client.get(f'/api/triagem/?id={self.tri.id_triagem}').json()['dado']
+        self.assertEqual(len(dado['fotos']), 1)
+
+    def test_foto_exige_login(self):
+        foto = self.enviar(imagem_teste()).json()['dado']
+        self.assertEqual(Client().get(foto['url']).status_code, 302)
+
+    def test_rejeita_arquivo_que_nao_e_imagem(self):
+        falso = SimpleUploadedFile('virus.png', b'<script>alert(1)</script>', content_type='image/png')
+        r = self.enviar(falso)
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(FotoTriagem.objects.count(), 0)
+
+    def test_rejeita_formato_nao_suportado(self):
+        r = self.enviar(imagem_teste('GIF', nome='a.gif', tipo='image/gif'))
+        self.assertEqual(r.status_code, 400)
+
+    def test_reduz_foto_grande_e_remove_exif(self):
+        r = self.enviar(imagem_teste('JPEG', tamanho=(3200, 2400), nome='g.jpg', tipo='image/jpeg'))
+        self.assertEqual(r.status_code, 200)
+        foto = FotoTriagem.objects.get()
+        with Image.open(foto.arquivo.path) as img:
+            self.assertLessEqual(max(img.size), FotoService.MAX_LADO)
+            self.assertEqual(img.format, 'JPEG')
+            self.assertFalse(img.getexif())
+
+    def test_limite_de_fotos_por_triagem(self):
+        for _ in range(FotoService.MAX_FOTOS):
+            self.assertEqual(self.enviar(imagem_teste()).status_code, 200)
+        self.assertEqual(self.enviar(imagem_teste()).status_code, 400)
+
+    def test_triagem_inexistente(self):
+        r = self.client.post('/api/triagem/fotos/', {'id_triagem': 99999, 'arquivo': imagem_teste()})
+        self.assertEqual(r.status_code, 404)
+
+    def test_excluir_foto_apaga_o_arquivo(self):
+        self.enviar(imagem_teste())
+        foto = FotoTriagem.objects.get()
+        caminho = foto.arquivo.path
+        r = self.client.delete(f'/api/triagem/fotos/?id={foto.id_foto}')
+        self.assertEqual(r.status_code, 200)
+        self.assertFalse(FotoTriagem.objects.exists())
+        import os
+        self.assertFalse(os.path.exists(caminho))
+        self.assertEqual(self.client.delete(f'/api/triagem/fotos/?id={foto.id_foto}').status_code, 404)
+
+    def test_excluir_triagem_apaga_fotos(self):
+        self.enviar(imagem_teste())
+        caminho = FotoTriagem.objects.get().arquivo.path
+        TriagemService.deletar(self.tri.n_ticket)
+        import os
+        self.assertFalse(FotoTriagem.objects.exists())
+        self.assertFalse(os.path.exists(caminho))
+
+    def test_laudo_docx_inclui_as_fotos(self):
+        self.enviar(imagem_teste(), legenda='Vista frontal')
+        self.enviar(imagem_teste())
+        r = self.client.get(f'/api/triagem/exportar-docx/?id={self.tri.id_triagem}')
+        self.assertEqual(r.status_code, 200)
+        doc = Document(BytesIO(r.content))
+        self.assertEqual(len(doc.inline_shapes), 2)
+        textos = ' '.join(p.text for p in doc.paragraphs)
+        self.assertIn('Registro fotográfico', textos)
+
+    def test_laudo_sem_fotos_continua_funcionando(self):
+        r = self.client.get(f'/api/triagem/exportar-docx/?id={self.tri.id_triagem}')
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(len(Document(BytesIO(r.content)).inline_shapes), 0)
+
+    def test_upload_exige_csrf(self):
+        c = Client(enforce_csrf_checks=True)
+        c.get('/')
+        token = c.cookies['csrftoken'].value
+        c.post('/api/login/', json.dumps({'login': 950, 'senha': 'senha123'}),
+               content_type='application/json', HTTP_X_CSRFTOKEN=token)
+        dados = {'id_triagem': self.tri.id_triagem, 'arquivo': imagem_teste()}
+        self.assertEqual(c.post('/api/triagem/fotos/', dados).status_code, 403)
+        dados = {'id_triagem': self.tri.id_triagem, 'arquivo': imagem_teste()}
+        self.assertEqual(c.post('/api/triagem/fotos/', dados, HTTP_X_CSRFTOKEN=token).status_code, 200)
+
+
+# ------------------------------------------------------------------
+# Consulta ao HP PartSurfer (sempre simulada nos testes: sem acesso à internet)
+# ------------------------------------------------------------------
+class PartSurferTests(TestCase):
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+        self.addCleanup(cache.clear)
+        self.func = criar_funcionario(960)
+        logar(self.client, 960)
+        self.equip = Equipamento.objects.create(pn='ABC123#AC4', modelo='ProBook 440')
+        self.url = f'/api/modelo-equipamento/{self.equip.id_equipamento}/partsurfer/'
+
+    def test_devolve_candidatas_sem_gravar_nada(self):
+        EquipamentoService.salvar_pecas(self.equip.id_equipamento, [{'part_number': 'LOCAL-1', 'descricao': 'So local'},
+                                                                    {'part_number': 'BAT-1'}])
+        hp = [{'part_number': 'bat-1', 'descricao': 'Bateria'}, {'part_number': 'TELA-1', 'descricao': 'Tela'},
+              {'part_number': 'TELA-1', 'descricao': 'Tela repetida'}]
+        with mock.patch('Daedalus.services.buscar_pecas_por_pn', return_value=hp):
+            r = post_json(self.client, self.url, {})
+        self.assertEqual(r.status_code, 200, r.content)
+        por_pn = {c['part_number']: c for c in r.json()['dados']}
+        self.assertEqual(set(por_pn), {'BAT-1', 'TELA-1', 'LOCAL-1'})
+        self.assertTrue(por_pn['BAT-1']['selecionada'])
+        self.assertFalse(por_pn['TELA-1']['selecionada'])
+        self.assertTrue(por_pn['LOCAL-1']['somente_local'])
+        self.assertFalse(Peca.objects.filter(part_number='TELA-1').exists())   # nada foi gravado
+
+    def test_sem_pecas_na_hp_vira_404(self):
+        with mock.patch('Daedalus.services.buscar_pecas_por_pn', return_value=[]):
+            self.assertEqual(post_json(self.client, self.url, {}).status_code, 404)
+
+    def test_falha_de_comunicacao_vira_502(self):
+        with mock.patch('Daedalus.services.buscar_pecas_por_pn', side_effect=partsurfer.PartSurferError('fora do ar')):
+            r = post_json(self.client, self.url, {})
+        self.assertEqual(r.status_code, 502)
+        self.assertIn('fora do ar', r.json()['mensagem'])
+
+    def test_limite_por_modelo(self):
+        with mock.patch('Daedalus.services.buscar_pecas_por_pn', return_value=[{'part_number': 'X'}]):
+            self.assertEqual(post_json(self.client, self.url, {}).status_code, 200)
+            self.assertEqual(post_json(self.client, self.url, {}).status_code, 429)
+
+    def test_equipamento_inexistente_e_login(self):
+        self.assertEqual(post_json(self.client, '/api/modelo-equipamento/99999/partsurfer/', {}).status_code, 404)
+        self.assertEqual(Client().post(self.url).status_code, 401)
+
+    def test_cliente_http_interpreta_a_resposta_da_hp(self):
+        def resposta(status=200, texto='', corpo=None):
+            m = mock.Mock(status_code=status, text=texto)
+            m.json.return_value = corpo
+            m.raise_for_status.return_value = None
+            return m
+        sessao = mock.MagicMock()
+        sessao.__enter__.return_value = sessao
+        sessao.get.side_effect = [
+            resposta(),                                                    # home
+            resposta(texto='abc:HPIUID=xyz'),                              # VerifyLogin
+            resposta(corpo={'Body': [{'PartNumber': ' L1 ', 'EnhancedDescription': 'Bateria'},
+                                     {'PartNumber': 'L1', 'EnhancedDescription': 'dup'},
+                                     {'PartNumber': None}, 'lixo']}),     # GetProduct
+        ]
+        with mock.patch('Daedalus.partsurfer.requests.Session', return_value=sessao):
+            pecas = partsurfer.buscar_pecas_por_pn(' abc123#ac4 ')
+        self.assertEqual(pecas, [{'part_number': 'L1', 'descricao': 'Bateria'}])
+        self.assertIn('HPIUID=xyz', sessao.get.call_args_list[2].kwargs['headers']['Cookie'])
+
+    def test_cliente_http_erros(self):
+        with self.assertRaises(partsurfer.PartSurferError):
+            partsurfer.buscar_pecas_por_pn('  ')
+        with mock.patch('Daedalus.partsurfer.requests.Session', side_effect=partsurfer.requests.exceptions.ConnectionError()):
+            with self.assertRaises(partsurfer.PartSurferError):
+                partsurfer.buscar_pecas_por_pn('ABC')

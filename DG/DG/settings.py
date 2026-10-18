@@ -128,6 +128,10 @@ STATICFILES_DIRS = [
     os.path.join(BASE_DIR, 'Static'),
 ]
 
+# Fotos das triagens (módulo de fotos). Os arquivos NÃO são servidos como estáticos: passam por /fotos/<id>/,
+# que exige login. Em produção, aponte DJANGO_MEDIA_ROOT para uma pasta fora do projeto com backup.
+MEDIA_ROOT = os.environ.get('DJANGO_MEDIA_ROOT', os.path.join(BASE_DIR, 'media'))
+
 # Sessão do funcionário: expira após 8 horas (um turno de trabalho)
 SESSION_COOKIE_AGE = 60 * 60 * 8
 SESSION_COOKIE_HTTPONLY = True

@@ -188,6 +188,14 @@
                     <div id="chart-treemap" class="h-[340px]"></div>
                 </div>
                 <div class="bg-[#1e293b] rounded-xl border border-[#334155] p-5">
+                    <h2 class="text-xs text-slate-400 font-bold uppercase mb-1">Peças mais trocadas</h2>
+                    <p id="pecas-nota" class="text-[10px] text-slate-500 mb-3">Peças do catálogo do modelo; NFF = trocadas, mas a bancada achou funcionais.</p>
+                    <table class="w-full text-xs text-left">
+                        <thead class="text-[10px] text-slate-500 uppercase"><tr><th class="py-2">Peça</th><th class="py-2 text-right">Trocas</th><th class="py-2 text-right">NFF</th><th class="py-2 pl-3">% NFF</th></tr></thead>
+                        <tbody id="tabela-pecas" class="divide-y divide-[#334155]"></tbody>
+                    </table>
+                </div>
+                <div class="bg-[#1e293b] rounded-xl border border-[#334155] p-5">
                     <h2 class="text-xs text-slate-400 font-bold uppercase mb-1">Diagnósticos que a bancada contradisse</h2>
                     <p class="text-[10px] text-slate-500 mb-3">O que o técnico apontou em campo, e o que a bancada constatou.</p>
                     <div id="lista-transicoes" class="space-y-3"></div>

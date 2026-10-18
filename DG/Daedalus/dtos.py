@@ -29,6 +29,7 @@ class EquipamentoDTO:
     pn: str
     modelo: str
     id_equipamento: Optional[int] = None
+    total_pecas: int = 0
 
 @dataclass
 class FuncionarioDTO:
@@ -68,6 +69,8 @@ class TriagemDTO:
     nome_analista_triagem: Optional[str] = None
     nome_equipamento: Optional[str] = None
     nome_tecnico: Optional[str] = None  # <--- Faltava esta linha!
+    id_peca_trocada: Optional[int] = None
+    peca_trocada: Optional[str] = None
     
     troca: Optional[str] = None
     defeito_usuario: Optional[str] = None
