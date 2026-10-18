@@ -311,6 +311,19 @@ def _modelos(qs, limite=30):
              'nff': l['nff'], 'taxa_nff': _pct(l['nff'], l['total'])} for l in linhas]
 
 
+def _pecas(qs, limite=10):
+    """Peças do catálogo mais trocadas, com a parcela que a bancada achou funcional (troca desnecessária)."""
+    base = qs.filter(peca_trocada__isnull=False)
+    linhas = (base.values(ident=F('peca_trocada_id'), pn=F('peca_trocada__part_number'), descricao=F('peca_trocada__descricao'))
+                  .annotate(trocas=Count('id_triagem'), nff=Count('id_triagem', filter=Q(status=NFF)))
+                  .order_by('-trocas', 'pn')[:limite])
+    itens = [{'id': l['ident'], 'part_number': l['pn'], 'descricao': l['descricao'], 'trocas': l['trocas'],
+              'nff': l['nff'], 'taxa_nff': _pct(l['nff'], l['trocas'])} for l in linhas]
+    total = qs.count()
+    com_peca = base.count()
+    return {'itens': itens, 'com_peca': com_peca, 'sem_peca': total - com_peca}
+
+
 def _pareto_defeitos(qs):
     confirmados = qs.filter(status=DEFEITO)
     contagem, exemplos = Counter(), defaultdict(Counter)
@@ -557,6 +570,7 @@ def montar_dashboard(params):
         'dimensoes': dimensoes,
         'modelos': modelos,
         'pareto_defeitos': _pareto_defeitos(qs),
+        'pecas': _pecas(qs),
         'transicoes': transicoes,
         'reincidencia': reinc,
         'recentes': _recentes(qs),
@@ -577,19 +591,20 @@ def _csv_seguro(valor):
 def exportar_csv(params):
     f = Filtros(params)
     qs = (f.queryset(f.inicio, f.fim)
-           .select_related('tecnico__empresa', 'cliente', 'equipamento', 'analista_chamado', 'analista_triagem')
+           .select_related('tecnico__empresa', 'cliente', 'equipamento', 'analista_chamado', 'analista_triagem', 'peca_trocada')
            .order_by('-data_triagem', '-id_triagem'))
     saida = io.StringIO()
     saida.write('\ufeff')  # BOM para o Excel abrir com acentos corretos
     escritor = csv.writer(saida, delimiter=';')
     escritor.writerow(['Data', 'Ticket', 'NF', 'Cidade', 'UF', 'Técnico', 'Prestadora', 'Cliente', 'PN', 'Modelo', 'SN',
-                       'Resultado', 'Peça trocada', 'Defeito do usuário', 'Diagnóstico do técnico',
+                       'Resultado', 'Peça trocada (catálogo)', 'Peça trocada (observação)', 'Defeito do usuário', 'Diagnóstico do técnico',
                        'Defeito constatado', 'Diagnóstico divergente', 'Analista do chamado', 'Analista da triagem'])
     for t in qs.iterator():
         escritor.writerow([_csv_seguro(c) for c in [
             timezone.localtime(t.data_triagem).strftime('%d/%m/%Y %H:%M'), t.n_ticket, t.nf, t.cidade, t.estado,
             t.tecnico.nome, t.tecnico.empresa.razao_social, t.cliente.razao_social, t.equipamento.pn, t.equipamento.modelo,
-            t.sn, 'Peça funcional (NFF)' if t.status == NFF else 'Defeito confirmado', t.troca,
+            t.sn, 'Peça funcional (NFF)' if t.status == NFF else 'Defeito confirmado',
+            t.peca_trocada.part_number if t.peca_trocada_id else '', t.troca,
             t.defeito_usuario, t.defeito_tecnico, t.defeito_constatado,
             'Sim' if _comparar_diagnostico(t.defeito_tecnico, t.defeito_constatado)[1] else 'Não',
             t.analista_chamado.nome, t.analista_triagem.nome]])

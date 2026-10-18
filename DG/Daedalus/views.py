@@ -1,16 +1,18 @@
 import json
 from datetime import datetime
 from django.shortcuts import render, redirect
-from django.http import HttpResponse, JsonResponse
+from django.http import FileResponse, Http404, HttpResponse, JsonResponse
 from django.views import View
 import re
 import unicodedata
 from django.db.models import Count, F, Q
 
-from .models import Funcionario, Triagem
+from django.core.exceptions import ObjectDoesNotExist
+from .models import Equipamento, FotoTriagem, Funcionario, Triagem
 from .analytics import FiltroInvalido, exportar_csv, montar_dashboard
 from .dtos import CargoFuncionario, EmpresaDTO, EquipamentoDTO, StatusPeca, TipoEmpresa, TecnicoDTO, FuncionarioDTO, TriagemDTO
-from .services import EmpresaService, EquipamentoService, FuncionarioService, SolicitacaoSenhaService, TecnicoService, TriagemService
+from .partsurfer import PartSurferError
+from .services import LimiteConsultasExcedido, EmpresaService, EquipamentoService, FotoService, FuncionarioService, SolicitacaoSenhaService, TecnicoService, TriagemService
 
 def _normalizar_texto(valor):
     """Minúsculas, sem acentos nem pontuação: base da comparação diagnóstico do técnico x constatação."""
@@ -190,7 +192,8 @@ class EquipamentoView(View):
                 {
                     'id': equipamento.id_equipamento,
                     'pn': equipamento.pn,
-                    'modelo': equipamento.modelo
+                    'modelo': equipamento.modelo,
+                    'total_pecas': equipamento.total_pecas
                 }
                 for equipamento in equipamento_dto
             ]
@@ -219,6 +222,101 @@ class EquipamentoView(View):
             return JsonResponse({'status': 'erro', 'mensagem': str(e)}, status=500)
 
 
+class PecasEquipamentoView(View):
+    """Peças vinculadas a um modelo de equipamento (GET lista; POST substitui a lista inteira)."""
+    def get(self, request):
+        try:
+            return JsonResponse({'status': 'sucesso',
+                                 'dados': EquipamentoService.listar_pecas(int(request.GET.get('id_equipamento')))})
+        except (TypeError, ValueError):
+            return JsonResponse({'status': 'erro', 'mensagem': 'Equipamento inválido.'}, status=400)
+        except Equipamento.DoesNotExist:
+            return JsonResponse({'status': 'erro', 'mensagem': 'Equipamento não encontrado.'}, status=404)
+        except Exception as e:
+            return JsonResponse({'status': 'erro', 'mensagem': str(e)}, status=500)
+
+    def post(self, request):
+        try:
+            body = json.loads(request.body)
+            dados = EquipamentoService.salvar_pecas(int(body.get('id_equipamento')), body.get('pecas'))
+            return JsonResponse({'status': 'sucesso', 'mensagem': 'Peças do modelo salvas!', 'dados': dados})
+        except (TypeError, ValueError) as ve:
+            return JsonResponse({'status': 'erro', 'mensagem': f"Dados inválidos: {ve}"}, status=400)
+        except Equipamento.DoesNotExist:
+            return JsonResponse({'status': 'erro', 'mensagem': 'Equipamento não encontrado.'}, status=404)
+        except Exception as e:
+            return JsonResponse({'status': 'erro', 'mensagem': str(e)}, status=500)
+
+
+class ConsultarPartSurferView(View):
+    """POST: consulta o HP PartSurfer pelo PN do modelo e devolve as peças candidatas. Não grava nada."""
+    def post(self, request, id_equipamento):
+        try:
+            candidatas = EquipamentoService.consultar_partsurfer(id_equipamento)
+            return JsonResponse({
+                'status': 'sucesso',
+                'mensagem': f'O PartSurfer retornou {sum(1 for c in candidatas if not c["somente_local"])} peça(s).',
+                'dados': candidatas,
+            })
+        except Equipamento.DoesNotExist:
+            return JsonResponse({'status': 'erro', 'mensagem': 'Equipamento não encontrado.'}, status=404)
+        except LimiteConsultasExcedido as le:
+            return JsonResponse({'status': 'erro', 'mensagem': str(le)}, status=429)
+        except ValueError as ve:
+            return JsonResponse({'status': 'erro', 'mensagem': str(ve)}, status=404)
+        except PartSurferError as pe:
+            return JsonResponse({'status': 'erro', 'mensagem': f'Falha ao consultar o PartSurfer: {pe}'}, status=502)
+        except Exception as e:
+            return JsonResponse({'status': 'erro', 'mensagem': str(e)}, status=500)
+
+
+class FotoTriagemView(View):
+    """Fotos de uma triagem: GET lista, POST envia (multipart), DELETE remove."""
+    def get(self, request):
+        try:
+            return JsonResponse({'status': 'sucesso', 'dados': FotoService.listar(int(request.GET.get('id_triagem')))})
+        except (TypeError, ValueError):
+            return JsonResponse({'status': 'erro', 'mensagem': 'Triagem inválida.'}, status=400)
+
+    def post(self, request):
+        try:
+            arquivo = request.FILES.get('arquivo')
+            if arquivo is None:
+                raise ValueError("Nenhuma foto enviada.")
+            foto = FotoService.adicionar(
+                int(request.POST.get('id_triagem')), arquivo, request.POST.get('legenda', ''))
+            return JsonResponse({'status': 'sucesso', 'mensagem': 'Foto adicionada!', 'dado': foto})
+        except Triagem.DoesNotExist:
+            return JsonResponse({'status': 'erro', 'mensagem': 'Triagem não encontrada.'}, status=404)
+        except (TypeError, ValueError) as ve:
+            return JsonResponse({'status': 'erro', 'mensagem': str(ve)}, status=400)
+        except Exception as e:
+            return JsonResponse({'status': 'erro', 'mensagem': str(e)}, status=500)
+
+    def delete(self, request):
+        try:
+            FotoService.excluir(int(request.GET.get('id')))
+            return JsonResponse({'status': 'sucesso', 'mensagem': 'Foto removida.'})
+        except (TypeError, ValueError):
+            return JsonResponse({'status': 'erro', 'mensagem': 'Foto inválida.'}, status=400)
+        except ObjectDoesNotExist as e:
+            return JsonResponse({'status': 'erro', 'mensagem': str(e)}, status=404)
+
+
+def daedalus_foto_arquivo(request, id_foto):
+    """Entrega o arquivo da foto. Passa pelo middleware, então exige login."""
+    foto = FotoTriagem.objects.filter(pk=id_foto).first()
+    if foto is None:
+        raise Http404()
+    try:
+        resposta = FileResponse(foto.arquivo.open('rb'), content_type='image/jpeg')
+    except (FileNotFoundError, OSError):
+        raise Http404()
+    resposta['X-Content-Type-Options'] = 'nosniff'
+    resposta['Cache-Control'] = 'private, max-age=3600'
+    return resposta
+
+
 class TriagemView(View):
     def get(self, request):
         try:
@@ -236,7 +334,10 @@ class TriagemView(View):
                         'id': tri.id_triagem, 'n_ticket': tri.n_ticket, 'nf': tri.nf,
                         'cidade': tri.cidade, 'estado': tri.estado, 'sn': tri.sn,
                         'status_peca': tri.status_peca.value if hasattr(tri.status_peca, 'value') else tri.status_peca,
-                        'troca': tri.troca, 'defeito_usuario': tri.defeito_usuario,
+                        'troca': tri.troca, 'id_equipamento': tri.id_equipamento,
+                        'id_peca_trocada': tri.id_peca_trocada, 'peca_trocada': tri.peca_trocada,
+                        'fotos': FotoService.listar(tri.id_triagem),
+                        'defeito_usuario': tri.defeito_usuario,
                         'defeito_tecnico': tri.defeito_tecnico, 'defeito_constatado': tri.defeito_constatado,
                         'testes': tri.testes, 'analise': tri.analise, 'conclusao': tri.conclusao,
                         'nome_cliente': tri.nome_cliente, 'nome_equipamento': tri.nome_equipamento,
@@ -290,6 +391,7 @@ class TriagemView(View):
                 sn=body.get('sn'),
                 status_peca=StatusPeca(int(body.get('status_peca'))),
                 troca=body.get('troca'),
+                id_peca_trocada=int(body.get('id_peca_trocada')) if body.get('id_peca_trocada') else None,
                 defeito_usuario=body.get('defeito_usuario'),
                 defeito_tecnico=body.get('defeito_tecnico'),
                 defeito_constatado=body.get('defeito_constatado'),
@@ -298,9 +400,10 @@ class TriagemView(View):
                 conclusao=body.get('conclusao')
             )
 
-            TriagemService.salvar(dto_entrada)
+            dto_salvo = TriagemService.salvar(dto_entrada)
 
-            return JsonResponse({'status': 'sucesso', 'mensagem': 'Triagem salva com sucesso!'})
+            return JsonResponse({'status': 'sucesso', 'mensagem': 'Triagem salva com sucesso!',
+                                 'id_gerado': dto_salvo.id_triagem})
             
         except ValueError as ve:
              return JsonResponse({'status': 'erro', 'mensagem': f"Erro de validação: {str(ve)}"}, status=400)

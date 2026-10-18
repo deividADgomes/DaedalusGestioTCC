@@ -133,9 +133,15 @@
                         </div>
                     </div>
 
-                    <div class="input-group md:col-span-12">
+                    <div class="input-group md:col-span-5 relative">
+                        <select id="peca-trocada" class="input-dynamic has-value appearance-none cursor-pointer">
+                            <option value="">Selecione o modelo primeiro</option>
+                        </select>
+                        <label class="label-dynamic">Peça trocada (do modelo)</label>
+                    </div>
+                    <div class="input-group md:col-span-7">
                         <input type="text" id="troca" class="input-dynamic" placeholder=" ">
-                        <label class="label-dynamic">Peça / Equipamento Trocado</label>
+                        <label class="label-dynamic">Peça / Equipamento Trocado (observação)</label>
                     </div>
                 </div>
             </section>
@@ -178,6 +184,21 @@
                         <label class="label-dynamic">Conclusão</label>
                     </div>
                 </div>
+            </section>
+
+            <section class="bg-[#1e293b] rounded-xl border border-[#334155] p-6 shadow-lg">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-sm font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
+                        <span class="w-2 h-2 rounded-full bg-violet-500"></span>
+                        Registro fotográfico
+                    </h2>
+                    <label for="input-fotos" class="px-4 py-2 rounded-md text-xs font-semibold text-white bg-violet-600 hover:bg-violet-500 cursor-pointer transition-colors">
+                        Adicionar fotos
+                    </label>
+                    <input type="file" id="input-fotos" accept="image/jpeg,image/png,image/webp" multiple class="hidden">
+                </div>
+                <p class="text-[10px] text-slate-500 mb-3">Até 10 fotos (JPG, PNG ou WEBP, 10 MB cada). Elas são enviadas ao salvar a triagem e entram no laudo em Word.</p>
+                <div id="previa-fotos" class="grid grid-cols-2 md:grid-cols-5 gap-3"></div>
             </section>
 
         </form>

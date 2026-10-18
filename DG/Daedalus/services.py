@@ -3,7 +3,7 @@ import logging
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.core.mail import EmailMessage
 from django.core.validators import validate_email
-from .models import Empresa, Equipamento, Funcionario, SolicitacaoSenha, Tecnico, Triagem
+from .models import Empresa, Equipamento, FotoTriagem, Funcionario, Peca, SolicitacaoSenha, Tecnico, Triagem
 from .dtos import EmpresaDTO, EquipamentoDTO, FuncionarioDTO, TecnicoDTO, TriagemDTO, StatusPeca
 import os
 from django.conf import settings
@@ -13,6 +13,13 @@ from datetime import date
 from django.contrib.auth.hashers import make_password, check_password, identify_hasher
 from django.utils import timezone
 from django.utils.crypto import constant_time_compare
+from django.core.files.base import ContentFile
+from django.db import transaction
+from django.db.models import Count
+from PIL import Image, ImageOps, UnidentifiedImageError
+import uuid
+from django.core.cache import cache
+from .partsurfer import buscar_pecas_por_pn
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +70,31 @@ class EmpresaService:
 # ==========================================
 # SERVIÇO DE EQUIPAMENTO
 # ==========================================
+# Limites para não sobrecarregar o PartSurfer (endpoint não oficial da HP).
+INTERVALO_MINIMO_POR_EQUIPAMENTO = 15   # segundos entre consultas do mesmo modelo
+MAX_CONSULTAS_POR_MINUTO = 20           # total do sistema
+
+
+class LimiteConsultasExcedido(Exception):
+    """Muitas consultas ao PartSurfer em pouco tempo."""
+
+
+def _controlar_taxa(id_equipamento: int) -> None:
+    if not cache.add(f"partsurfer:equip:{id_equipamento}", 1, INTERVALO_MINIMO_POR_EQUIPAMENTO):
+        raise LimiteConsultasExcedido(
+            f"Este modelo foi consultado agora há pouco. Aguarde {INTERVALO_MINIMO_POR_EQUIPAMENTO} segundos."
+        )
+    chave = "partsurfer:global"
+    cache.add(chave, 0, 60)
+    try:
+        total = cache.incr(chave)
+    except ValueError:
+        cache.set(chave, 1, 60)
+        total = 1
+    if total > MAX_CONSULTAS_POR_MINUTO:
+        raise LimiteConsultasExcedido("Muitas consultas ao PartSurfer no último minuto. Tente novamente em instantes.")
+
+
 class EquipamentoService:
     @staticmethod
     def salvar(dto: EquipamentoDTO) -> EquipamentoDTO:
@@ -98,14 +130,98 @@ class EquipamentoService:
 
     @staticmethod
     def listar() -> List[EquipamentoDTO]:
-        equipamentos = Equipamento.objects.all()
+        equipamentos = Equipamento.objects.annotate(total_pecas=Count('pecas'))
         return [
             EquipamentoDTO(
                 id_equipamento=eq.id_equipamento,
                 pn=eq.pn,
-                modelo=eq.modelo
+                modelo=eq.modelo,
+                total_pecas=eq.total_pecas
             ) for eq in equipamentos
         ]
+
+    # ---------- peças do modelo ----------
+    @staticmethod
+    def listar_pecas(id_equipamento: int) -> List[dict]:
+        equip = Equipamento.objects.get(pk=id_equipamento)
+        return [
+            {'id': p.id_peca, 'part_number': p.part_number, 'descricao': p.descricao}
+            for p in equip.pecas.order_by('part_number')
+        ]
+
+    @staticmethod
+    def consultar_partsurfer(id_equipamento: int) -> List[dict]:
+        """
+        Consulta o HP PartSurfer pelo PN do modelo e devolve as peças CANDIDATAS, sem gravar nada.
+
+        O usuário escolhe quais usar (ver salvar_pecas), porque nem tudo que o PartSurfer lista é útil.
+        Peças já vinculadas vêm marcadas (selecionada=True); as vinculadas que a HP não retornou
+        continuam na lista (somente_local=True) para o usuário decidir se mantém.
+
+        Levanta PartSurferError (falha de comunicação), ValueError (HP sem peças) e LimiteConsultasExcedido.
+        """
+        equip = Equipamento.objects.get(pk=id_equipamento)
+        _controlar_taxa(id_equipamento)
+        pecas_hp = buscar_pecas_por_pn(equip.pn)
+
+        if not pecas_hp:
+            raise ValueError(
+                f"O PartSurfer não retornou peças para o PN {equip.pn}. Confira se o Part Number está correto."
+            )
+
+        vinculadas = {p.part_number: p for p in equip.pecas.all()}
+        candidatas, vistos = [], set()
+        for item in pecas_hp:
+            pn = str(item.get('part_number') or '').strip().upper()
+            if not pn or pn in vistos:
+                continue
+            vistos.add(pn)
+            candidatas.append({'part_number': pn, 'descricao': item.get('descricao', ''),
+                               'selecionada': pn in vinculadas, 'somente_local': False})
+        for pn, peca in vinculadas.items():
+            if pn not in vistos:
+                candidatas.append({'part_number': pn, 'descricao': peca.descricao,
+                                   'selecionada': True, 'somente_local': True})
+        candidatas.sort(key=lambda c: c['part_number'])
+        return candidatas
+
+    @staticmethod
+    def salvar_pecas(id_equipamento: int, itens: List[dict]) -> List[dict]:
+        """
+        Define exatamente quais peças pertencem ao modelo: [{part_number, descricao}, ...].
+        Peça nova entra no catálogo; peça removida só perde o vínculo com este modelo
+        (continua no catálogo e no histórico das triagens).
+        """
+        if not isinstance(itens, list):
+            raise ValueError("Lista de peças inválida.")
+        equip = Equipamento.objects.get(pk=id_equipamento)
+
+        escolhidas = {}
+        for item in itens:
+            if not isinstance(item, dict):
+                continue
+            pn = str(item.get('part_number') or '').strip().upper()
+            if not pn:
+                continue
+            if len(pn) > 100:
+                raise ValueError(f"Part Number muito longo: {pn[:20]}...")
+            escolhidas[pn] = str(item.get('descricao') or '').strip()[:255]
+        if len(escolhidas) > 200:
+            raise ValueError("Limite de 200 peças por modelo.")
+
+        with transaction.atomic():
+            existentes = {p.part_number: p for p in Peca.objects.filter(part_number__in=list(escolhidas))}
+            vinculos = []
+            for pn, descricao in escolhidas.items():
+                peca = existentes.get(pn)
+                if peca is None:
+                    peca = Peca.objects.create(part_number=pn, descricao=descricao)
+                elif descricao and peca.descricao != descricao:
+                    peca.descricao = descricao
+                    peca.save(update_fields=['descricao'])
+                vinculos.append(peca)
+            equip.pecas.set(vinculos)
+        return EquipamentoService.listar_pecas(id_equipamento)
 
 
 # ==========================================
@@ -381,6 +497,13 @@ class TriagemService:
         tecnico = Tecnico.objects.get(pk=dto.id_tecnico)
         cliente = Empresa.objects.get(pk=dto.id_cliente)
         equipamento = Equipamento.objects.get(pk=dto.id_equipamento)
+
+        # Peça trocada (opcional): precisa pertencer ao modelo escolhido
+        peca_trocada = None
+        if dto.id_peca_trocada:
+            peca_trocada = equipamento.pecas.filter(pk=dto.id_peca_trocada).first()
+            if peca_trocada is None:
+                raise ValueError("A peça trocada não pertence ao modelo de equipamento selecionado.")
         
         # Buscando as instâncias dos dois analistas
         analista_chamado = Funcionario.objects.get(pk=dto.id_analista_chamado)
@@ -395,6 +518,7 @@ class TriagemService:
             triagem.sn = dto.sn
             triagem.status = dto.status_peca.value if hasattr(dto.status_peca, 'value') else dto.status_peca
             triagem.troca = dto.troca
+            triagem.peca_trocada = peca_trocada
             triagem.defeito_usuario = dto.defeito_usuario
             triagem.defeito_tecnico = dto.defeito_tecnico
             triagem.defeito_constatado = dto.defeito_constatado
@@ -419,6 +543,7 @@ class TriagemService:
                 sn=dto.sn,
                 status=dto.status_peca.value if hasattr(dto.status_peca, 'value') else dto.status_peca,
                 troca=dto.troca,
+                peca_trocada=peca_trocada,
                 defeito_usuario=dto.defeito_usuario,
                 defeito_tecnico=dto.defeito_tecnico,
                 defeito_constatado=dto.defeito_constatado,
@@ -438,12 +563,12 @@ class TriagemService:
 
     @staticmethod
     def listar() -> List[TriagemDTO]:
-        triagens = Triagem.objects.select_related('cliente', 'equipamento', 'tecnico', 'analista_chamado', 'analista_triagem').all()
+        triagens = Triagem.objects.select_related('cliente', 'equipamento', 'tecnico', 'analista_chamado', 'analista_triagem', 'peca_trocada').all()
         return [TriagemService._mapear_para_dto(t) for t in triagens]
 
     @staticmethod
     def buscar_por_id(id_triagem: int) -> Optional[TriagemDTO]:
-        triagem = Triagem.objects.select_related('cliente', 'equipamento', 'tecnico', 'analista_chamado', 'analista_triagem').filter(pk=id_triagem).first()
+        triagem = Triagem.objects.select_related('cliente', 'equipamento', 'tecnico', 'analista_chamado', 'analista_triagem', 'peca_trocada').filter(pk=id_triagem).first()
         if triagem:
             return TriagemService._mapear_para_dto(triagem)
         return None
@@ -453,7 +578,7 @@ class TriagemService:
         if not ticket:
             raise ValueError("Ticket obrigatório para a busca.")
             
-        triagem = Triagem.objects.select_related('cliente', 'equipamento', 'tecnico', 'analista_chamado', 'analista_triagem').filter(n_ticket=ticket).first()
+        triagem = Triagem.objects.select_related('cliente', 'equipamento', 'tecnico', 'analista_chamado', 'analista_triagem', 'peca_trocada').filter(n_ticket=ticket).first()
         if triagem:
             return TriagemService._mapear_para_dto(triagem)
         return None
@@ -469,7 +594,7 @@ class TriagemService:
             raise ValueError("Campo de busca inválido.")
 
         filtro = {f"{campo}__icontains": valor}
-        triagens = Triagem.objects.select_related('cliente', 'equipamento', 'tecnico', 'analista_chamado', 'analista_triagem').filter(**filtro)
+        triagens = Triagem.objects.select_related('cliente', 'equipamento', 'tecnico', 'analista_chamado', 'analista_triagem', 'peca_trocada').filter(**filtro)
         return [TriagemService._mapear_para_dto(t) for t in triagens]
 
     @staticmethod
@@ -477,6 +602,8 @@ class TriagemService:
         if not ticket:
             raise ValueError("Ticket obrigatório para exclusão.")
         
+        for foto in FotoTriagem.objects.filter(triagem__n_ticket=ticket):
+            foto.arquivo.delete(save=False)
         registros_apagados, _ = Triagem.objects.filter(n_ticket=ticket).delete()
         if registros_apagados == 0:
             raise ObjectDoesNotExist("Nenhuma triagem encontrada com este ticket.")
@@ -521,6 +648,8 @@ class TriagemService:
             sn=triagem.sn,
             status_peca=StatusPeca(triagem.status),
             troca=triagem.troca,
+            id_peca_trocada=triagem.peca_trocada_id,
+            peca_trocada=str(triagem.peca_trocada) if triagem.peca_trocada_id else None,
             defeito_usuario=triagem.defeito_usuario,
             defeito_tecnico=triagem.defeito_tecnico,
             defeito_constatado=triagem.defeito_constatado,
@@ -569,7 +698,8 @@ class TriagemService:
         t2.cell(2, 2).text = f"Equipamento: {tri.nome_equipamento or ''}"
         
         t2.cell(3, 1).text = f"N° de Série: {tri.sn or ''}"
-        t2.cell(4, 1).text = f"Peça/Equipamento Trocado: {tri.troca or ''}"
+        trocado = ' | '.join(x for x in (tri.peca_trocada, tri.troca) if x)
+        t2.cell(4, 1).text = f"Peça/Equipamento Trocado: {trocado}"
         t2.cell(5, 1).text = f"Defeito alegado: {tri.defeito_usuario or ''}"
         t2.cell(6, 1).text = f"Constatação do Técnico: {tri.defeito_tecnico or ''}"
 
@@ -581,6 +711,8 @@ class TriagemService:
         t4.cell(1, 0).text = f"Testes Realizados: {tri.testes or ''}"
         t4.cell(2, 0).text = f"Análise: {tri.analise or ''}"
         t4.cell(3, 0).text = f"Conclusão: {tri.conclusao or ''}"
+
+        FotoService.inserir_no_docx(doc, id_triagem)
 
         buffer = BytesIO()
         doc.save(buffer)
@@ -596,3 +728,90 @@ class TriagemService:
         nome_arquivo = f"Triagem_{ticket_str}_{modelo_str}_{cliente_str}.docx"
         
         return buffer, nome_arquivo
+
+# ==========================================
+# SERVIÇO DE FOTOS DA TRIAGEM
+# ==========================================
+class FotoService:
+    MAX_FOTOS = 10
+    MAX_BYTES = 10 * 1024 * 1024          # 10 MB por arquivo enviado
+    MAX_LADO = 1600                       # px; fotos maiores são reduzidas
+    FORMATOS = ('JPEG', 'PNG', 'WEBP')
+
+    @staticmethod
+    def _para_dict(foto: FotoTriagem) -> dict:
+        return {
+            'id': foto.id_foto,
+            'url': f"/fotos/{foto.id_foto}/",
+            'legenda': foto.legenda,
+            'criado_em': timezone.localtime(foto.criado_em).isoformat(),
+        }
+
+    @staticmethod
+    def listar(id_triagem: int) -> List[dict]:
+        return [FotoService._para_dict(f) for f in FotoTriagem.objects.filter(triagem_id=id_triagem)]
+
+    @staticmethod
+    def _processar(arquivo) -> bytes:
+        """Valida que é uma imagem de verdade, corrige a rotação, remove metadados (EXIF/GPS) e reduz o tamanho."""
+        if arquivo.size > FotoService.MAX_BYTES:
+            raise ValueError("A foto excede o limite de 10 MB.")
+        try:
+            img = Image.open(arquivo)
+            if img.format not in FotoService.FORMATOS:
+                raise ValueError("Formato não suportado. Envie JPG, PNG ou WEBP.")
+            img = ImageOps.exif_transpose(img)
+            img.load()
+        except (UnidentifiedImageError, OSError, Image.DecompressionBombError):
+            raise ValueError("O arquivo enviado não é uma imagem válida.")
+        if img.mode not in ('RGB', 'L'):
+            fundo = Image.new('RGB', img.size, (255, 255, 255))
+            rgba = img.convert('RGBA')
+            fundo.paste(rgba, mask=rgba.split()[-1])
+            img = fundo
+        elif img.mode == 'L':
+            img = img.convert('RGB')
+        img.thumbnail((FotoService.MAX_LADO, FotoService.MAX_LADO))
+        saida = BytesIO()
+        img.save(saida, format='JPEG', quality=85, optimize=True)
+        return saida.getvalue()
+
+    @staticmethod
+    def adicionar(id_triagem: int, arquivo, legenda: str = '') -> dict:
+        triagem = Triagem.objects.get(pk=id_triagem)
+        if triagem.fotos.count() >= FotoService.MAX_FOTOS:
+            raise ValueError(f"Limite de {FotoService.MAX_FOTOS} fotos por triagem.")
+        conteudo = FotoService._processar(arquivo)
+        foto = FotoTriagem(triagem=triagem, legenda=(legenda or '').strip()[:150])
+        foto.arquivo.save(f"{uuid.uuid4().hex}.jpg", ContentFile(conteudo), save=False)
+        foto.save()
+        return FotoService._para_dict(foto)
+
+    @staticmethod
+    def excluir(id_foto: int) -> None:
+        foto = FotoTriagem.objects.filter(pk=id_foto).first()
+        if foto is None:
+            raise ObjectDoesNotExist("Foto não encontrada.")
+        foto.arquivo.delete(save=False)
+        foto.delete()
+
+    @staticmethod
+    def inserir_no_docx(doc, id_triagem: int) -> None:
+        """Acrescenta o registro fotográfico ao final do laudo (2 fotos por linha)."""
+        from docx.shared import Cm
+        fotos = list(FotoTriagem.objects.filter(triagem_id=id_triagem))
+        if not fotos:
+            return
+        doc.add_paragraph().add_run("Registro fotográfico").bold = True
+        linhas = (len(fotos) + 1) // 2
+        tabela = doc.add_table(rows=linhas, cols=2)
+        for i, foto in enumerate(fotos):
+            celula = tabela.cell(i // 2, i % 2)
+            par = celula.paragraphs[0]
+            try:
+                with foto.arquivo.open('rb') as f:
+                    par.add_run().add_picture(BytesIO(f.read()), width=Cm(7.0))
+            except (FileNotFoundError, OSError):
+                par.add_run("[foto indisponível]")
+            if foto.legenda:
+                celula.add_paragraph(foto.legenda)

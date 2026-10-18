@@ -5,10 +5,12 @@
         constructor() {
             super();
             this.idAtual = null;
+            this.totalFotos = 0;
             this.carregarDados();
             this.iniciarEventos();
         }
         iniciarEventos() {
+            document.getElementById('input-fotos')?.addEventListener('change', (e) => this.enviarFotos(e));
             const btnExportar = document.getElementById('btn-exportar-word');
             if (btnExportar) {
                 btnExportar.addEventListener('click', () => {
@@ -21,6 +23,82 @@
                     }
                 });
             }
+        }
+        // ==========================================
+        // FOTOS
+        // ==========================================
+        desenharGaleria(fotos) {
+            this.totalFotos = fotos.length;
+            const galeria = document.getElementById('galeria-fotos');
+            galeria.innerHTML = '';
+            document.getElementById('galeria-vazia')?.classList.toggle('hidden', fotos.length > 0);
+            fotos.forEach(f => {
+                const item = document.createElement('div');
+                item.className = 'relative aspect-square rounded-lg overflow-hidden border border-[#334155] bg-slate-900';
+                const link = document.createElement('a');
+                link.href = f.url;
+                link.target = '_blank';
+                link.rel = 'noopener';
+                const img = document.createElement('img');
+                img.src = f.url;
+                img.alt = f.legenda || 'Foto da triagem';
+                img.loading = 'lazy';
+                img.className = 'w-full h-full object-cover hover:opacity-90 transition-opacity';
+                link.appendChild(img);
+                const rem = document.createElement('button');
+                rem.type = 'button';
+                rem.textContent = '✕';
+                rem.title = 'Excluir foto';
+                rem.className = 'absolute top-1 right-1 w-6 h-6 rounded-full bg-black/70 text-rose-300 text-xs hover:bg-rose-600 hover:text-white';
+                rem.addEventListener('click', () => this.excluirFoto(f.id));
+                item.append(link, rem);
+                galeria.appendChild(item);
+            });
+        }
+        async recarregarFotos() {
+            const res = await fetch(`/api/triagem/fotos/?id_triagem=${this.idAtual}`).then(r => r.json());
+            if (res.status === 'sucesso') {
+                this.desenharGaleria(res.dados);
+            }
+        }
+        async enviarFotos(e) {
+            const input = e.target;
+            const arquivos = Array.from(input.files || []);
+            input.value = '';
+            const falhas = [];
+            for (const arq of arquivos) {
+                const fd = new FormData();
+                fd.append('id_triagem', String(this.idAtual));
+                fd.append('arquivo', arq);
+                try {
+                    const res = await fetch('/api/triagem/fotos/', { method: 'POST', body: fd }).then(r => r.json());
+                    if (res.status !== 'sucesso') {
+                        falhas.push(`${arq.name}: ${res.mensagem}`);
+                    }
+                }
+                catch (err) {
+                    falhas.push(`${arq.name}: falha de comunicação`);
+                }
+            }
+            await this.recarregarFotos();
+            if (falhas.length) {
+                alert('Algumas fotos não foram enviadas:\n- ' + falhas.join('\n- '));
+            }
+        }
+        async excluirFoto(id) {
+            if (!confirm('Excluir esta foto?')) {
+                return;
+            }
+            try {
+                const res = await fetch(`/api/triagem/fotos/?id=${id}`, { method: 'DELETE' }).then(r => r.json());
+                if (res.status !== 'sucesso') {
+                    alert('Erro: ' + res.mensagem);
+                }
+            }
+            catch (err) {
+                alert('Erro ao comunicar com o servidor.');
+            }
+            await this.recarregarFotos();
         }
         async carregarDados() {
             const urlParams = new URLSearchParams(window.location.search);
@@ -49,6 +127,8 @@
                     document.getElementById('v-equipamento').value = d.nome_equipamento || "";
                     document.getElementById('v-sn').value = d.sn || "";
                     document.getElementById('v-troca').value = d.troca || "";
+                    document.getElementById('v-peca').value = d.peca_trocada || "";
+                    this.desenharGaleria(d.fotos || []);
                     // SESSÃO 3: LAUDO
                     document.getElementById('v-defeito_usuario').value = d.defeito_usuario || "Não informado";
                     document.getElementById('v-defeito_tecnico').value = d.defeito_tecnico || "Não informado";

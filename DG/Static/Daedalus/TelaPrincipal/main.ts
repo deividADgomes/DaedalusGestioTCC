@@ -11,6 +11,9 @@
         private statusTexto: HTMLSpanElement;
 
         private idAtual: number | null = null;
+        private fotosPendentes: File[] = [];
+        private static readonly MAX_FOTOS = 10;
+        private static readonly MAX_BYTES = 10 * 1024 * 1024;
 
         constructor() {
             super();
@@ -31,6 +34,11 @@
             this.btnSalvar.addEventListener('click', () => this.salvarTriagem());
             this.btnLimpar.addEventListener('click', () => this.limparFormulario());
 
+            (document.getElementById('equipamento') as HTMLSelectElement)
+                .addEventListener('change', () => this.carregarPecasDoModelo());
+            (document.getElementById('input-fotos') as HTMLInputElement)
+                .addEventListener('change', (e) => this.selecionarFotos(e));
+
             // Lógica do seu Toggle Switch bonito
             this.toggleStatus.addEventListener('change', () => {
                 if (this.toggleStatus.checked) {
@@ -41,6 +49,83 @@
                     this.statusTexto.classList.replace("text-emerald-400", "text-rose-400");
                 }
             });
+        }
+
+        // ==========================================
+        // PEÇAS DO MODELO
+        // ==========================================
+        private async carregarPecasDoModelo(): Promise<void> {
+            const select = document.getElementById('peca-trocada') as HTMLSelectElement;
+            const idEquip = (document.getElementById('equipamento') as HTMLSelectElement).value;
+            select.innerHTML = '<option value="">Carregando...</option>';
+            try {
+                const res = await fetch(`/api/modelo-equipamento/pecas/?id_equipamento=${idEquip}`).then(r => r.json());
+                const pecas: any[] = res.status === 'sucesso' ? res.dados : [];
+                select.innerHTML = pecas.length
+                    ? '<option value="">Nenhuma / outra (descrever ao lado)</option>'
+                    : '<option value="">Este modelo não tem peças cadastradas</option>';
+                pecas.forEach(p => select.add(new Option(p.descricao ? `${p.part_number} - ${p.descricao}` : p.part_number, p.id)));
+            } catch (e) {
+                select.innerHTML = '<option value="">Não foi possível carregar as peças</option>';
+            }
+        }
+
+        // ==========================================
+        // FOTOS (enviadas depois que a triagem é salva)
+        // ==========================================
+        private selecionarFotos(e: Event): void {
+            const input = e.target as HTMLInputElement;
+            Array.from(input.files || []).forEach(arq => {
+                if (!['image/jpeg', 'image/png', 'image/webp'].includes(arq.type)) {
+                    alert(`"${arq.name}": use JPG, PNG ou WEBP.`);
+                } else if (arq.size > G_triagemUI.MAX_BYTES) {
+                    alert(`"${arq.name}" excede 10 MB.`);
+                } else if (this.fotosPendentes.length >= G_triagemUI.MAX_FOTOS) {
+                    alert(`Limite de ${G_triagemUI.MAX_FOTOS} fotos por triagem.`);
+                } else {
+                    this.fotosPendentes.push(arq);
+                }
+            });
+            input.value = '';
+            this.desenharPrevia();
+        }
+
+        private desenharPrevia(): void {
+            const area = document.getElementById('previa-fotos') as HTMLElement;
+            area.querySelectorAll('img').forEach(img => URL.revokeObjectURL(img.src));
+            area.innerHTML = '';
+            this.fotosPendentes.forEach((arq, i) => {
+                const item = document.createElement('div');
+                item.className = 'relative group aspect-square rounded-lg overflow-hidden border border-[#334155] bg-slate-900';
+                const img = document.createElement('img');
+                img.src = URL.createObjectURL(arq);
+                img.alt = arq.name;
+                img.className = 'w-full h-full object-cover';
+                const rem = document.createElement('button');
+                rem.type = 'button';
+                rem.textContent = '✕';
+                rem.title = 'Remover';
+                rem.className = 'absolute top-1 right-1 w-6 h-6 rounded-full bg-black/70 text-rose-300 text-xs hover:bg-rose-600 hover:text-white';
+                rem.addEventListener('click', () => { this.fotosPendentes.splice(i, 1); this.desenharPrevia(); });
+                item.append(img, rem);
+                area.appendChild(item);
+            });
+        }
+
+        private async enviarFotos(idTriagem: number): Promise<string[]> {
+            const falhas: string[] = [];
+            for (const arq of this.fotosPendentes) {
+                const fd = new FormData();
+                fd.append('id_triagem', String(idTriagem));
+                fd.append('arquivo', arq);
+                try {
+                    const res = await fetch('/api/triagem/fotos/', { method: 'POST', body: fd }).then(r => r.json());
+                    if (res.status !== 'sucesso') { falhas.push(`${arq.name}: ${res.mensagem}`); }
+                } catch (e) {
+                    falhas.push(`${arq.name}: falha de comunicação`);
+                }
+            }
+            return falhas;
         }
 
         private preencherDataHoje(): void {
@@ -127,6 +212,7 @@
                 sn: sn,
                 status_peca: status_peca,
                 troca: (document.getElementById('troca') as HTMLInputElement).value,
+                id_peca_trocada: (document.getElementById('peca-trocada') as HTMLSelectElement).value || null,
                 defeito_usuario: (document.getElementById('defeitoAlegado') as HTMLTextAreaElement).value,
                 defeito_tecnico: (document.getElementById('constatacao') as HTMLTextAreaElement).value,
                 defeito_constatado: (document.getElementById('defeitoResumo') as HTMLInputElement).value,
@@ -145,7 +231,14 @@
                 const resultado = await resposta.json();
 
                 if (resultado.status === 'sucesso') {
-                    alert(resultado.mensagem || "Triagem salva com sucesso!");
+                    let aviso = resultado.mensagem || "Triagem salva com sucesso!";
+                    if (this.fotosPendentes.length && resultado.id_gerado) {
+                        const falhas = await this.enviarFotos(resultado.id_gerado);
+                        aviso += falhas.length
+                            ? `\n\nAlgumas fotos não foram enviadas (anexe-as depois na tela de visualização):\n- ${falhas.join('\n- ')}`
+                            : `\n${this.fotosPendentes.length} foto(s) anexada(s).`;
+                    }
+                    alert(aviso);
                     this.limparFormulario();
                 } else {
                     alert("Erro do Servidor: " + resultado.mensagem);
@@ -162,6 +255,10 @@
             // Reseta o interruptor
             this.statusTexto.innerText = "Defeito";
             this.statusTexto.classList.replace("text-emerald-400", "text-rose-400");
+            this.fotosPendentes = [];
+            this.desenharPrevia();
+            (document.getElementById('peca-trocada') as HTMLSelectElement).innerHTML =
+                '<option value="">Selecione o modelo primeiro</option>';
 
             document.querySelectorAll('.input-dynamic').forEach(input => input.classList.remove('has-value'));
             this.preencherDataHoje(); // Mantém a data
