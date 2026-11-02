@@ -3,59 +3,48 @@ from django.http import JsonResponse
 from django.middleware.csrf import get_token
 from django.shortcuts import redirect
 
+from .dtos import CARGOS_DE_GESTAO
+
 
 class AutenticacaoMiddleware:
-    """
-    Controle de acesso do Daedalus Gestio (RF10, RF12, RF14 e RNF05).
-
-    - Todas as rotas, exceto login, logout e arquivos estáticos, exigem sessão ativa.
-    - Enquanto o usuário estiver no primeiro acesso, só pode trocar a senha ou sair.
-    - Apenas Administrador e Gestor acessam a tela de funcionários e podem
-      criar ou alterar funcionários (a listagem GET fica liberada porque o
-      formulário de triagem precisa dela).
-    """
-
     ROTAS_PUBLICAS = ('/', '/api/login/', '/api/recuperar-senha/', '/logout/')
     PREFIXOS_PUBLICOS = ('/admin/',)
     ROTAS_PRIMEIRO_ACESSO = ('/primeiro-acesso/', '/api/alterar-senha/', '/logout/')
-    CARGOS_ADMIN = ('Administrador', 'Gestor')
+    ROTAS_SOMENTE_GESTAO = ('/gerenciar-funcionario/', '/api/solicitacoes-senha/')
+    ROTA_API_FUNCIONARIO = '/api/funcionario/'
 
     def __init__(self, get_response):
         self.get_response = get_response
         self.prefixo_static = '/' + settings.STATIC_URL.strip('/') + '/'
 
     def __call__(self, request):
-        path = request.path
-
-        # Garante o cookie csrftoken em todas as páginas (o front envia no cabeçalho X-CSRFToken)
         get_token(request)
 
-        if self._publica(path):
+        if self._eh_publica(request.path):
             return self.get_response(request)
 
         if not request.session.get('funcionario_id'):
             return self._negar(request, 401, 'Sessão expirada. Faça login novamente.', '/')
 
-        if request.session.get('primeiro_acesso') and path not in self.ROTAS_PRIMEIRO_ACESSO:
+        if request.session.get('primeiro_acesso') and request.path not in self.ROTAS_PRIMEIRO_ACESSO:
             return self._negar(request, 403, 'Altere a senha provisória para continuar.', '/primeiro-acesso/')
 
-        if self._exige_admin(request) and request.session.get('funcionario_cargo') not in self.CARGOS_ADMIN:
+        if self._exige_gestao(request) and request.session.get('funcionario_cargo') not in CARGOS_DE_GESTAO:
             return self._negar(request, 403, 'Acesso restrito a Administrador ou Gestor.', '/principal/')
 
         return self.get_response(request)
 
-    def _publica(self, path):
+    def _eh_publica(self, caminho):
         return (
-            path in self.ROTAS_PUBLICAS
-            or path.startswith(self.prefixo_static)
-            or path.startswith(self.PREFIXOS_PUBLICOS)
+            caminho in self.ROTAS_PUBLICAS
+            or caminho.startswith(self.prefixo_static)
+            or caminho.startswith(self.PREFIXOS_PUBLICOS)
         )
 
-    @staticmethod
-    def _exige_admin(request):
-        if request.path in ('/gerenciar-funcionario/', '/api/solicitacoes-senha/'):
+    def _exige_gestao(self, request):
+        if request.path in self.ROTAS_SOMENTE_GESTAO:
             return True
-        return request.path == '/api/funcionario/' and request.method != 'GET'
+        return request.path == self.ROTA_API_FUNCIONARIO and request.method != 'GET'
 
     @staticmethod
     def _negar(request, status, mensagem, destino):

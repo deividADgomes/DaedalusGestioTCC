@@ -1,22 +1,29 @@
 from dataclasses import dataclass
 from datetime import datetime
+from enum import Enum, IntEnum
 from typing import Optional
-from enum import IntEnum, Enum
 
 
 class TipoEmpresa(IntEnum):
     PRESTADORA = 1
     CLIENTE = 2
 
+
 class StatusPeca(IntEnum):
     FUNCIONAL = 1
     NAO_FUNCIONAL = 2
 
+
 class CargoFuncionario(str, Enum):
     FUNCIONARIO = "Funcionário"
     ANALISTA_TRIAGEM = "Analista de Triagem"
-    GESTOR = "Gestor" 
+    GESTOR = "Gestor"
     ADMINISTRADOR = "Administrador"
+
+
+CARGOS_DE_GESTAO = (CargoFuncionario.ADMINISTRADOR.value, CargoFuncionario.GESTOR.value)
+
+
 @dataclass
 class EmpresaDTO:
     cnpj: str
@@ -24,12 +31,14 @@ class EmpresaDTO:
     tipo: TipoEmpresa
     id_empresa: Optional[int] = None
 
+
 @dataclass
 class EquipamentoDTO:
     pn: str
     modelo: str
     id_equipamento: Optional[int] = None
     total_pecas: int = 0
+
 
 @dataclass
 class FuncionarioDTO:
@@ -41,12 +50,15 @@ class FuncionarioDTO:
     primeiro_acesso: bool = True
     email: Optional[str] = None
 
+
 @dataclass
 class TecnicoDTO:
     nome: str
     id_empresa: int
     id_tecnico: Optional[int] = None
     nome_empresa: Optional[str] = None
+
+
 @dataclass
 class TriagemDTO:
     n_ticket: int
@@ -60,18 +72,17 @@ class TriagemDTO:
 
     id_equipamento: int
     sn: str
-    status_peca: StatusPeca 
+    status_peca: StatusPeca
     id_triagem: Optional[int] = None
-    
-    # AGORA COM O TÉCNICO INCLUÍDO:
+
     nome_cliente: Optional[str] = None
     nome_analista_chamado: Optional[str] = None
     nome_analista_triagem: Optional[str] = None
     nome_equipamento: Optional[str] = None
-    nome_tecnico: Optional[str] = None  # <--- Faltava esta linha!
+    nome_tecnico: Optional[str] = None
     id_peca_trocada: Optional[int] = None
     peca_trocada: Optional[str] = None
-    
+
     troca: Optional[str] = None
     defeito_usuario: Optional[str] = None
     defeito_tecnico: Optional[str] = None

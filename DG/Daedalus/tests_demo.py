@@ -10,8 +10,6 @@ from .services import FuncionarioService
 
 
 class PopularDemoTests(TestCase):
-    """Garante que o banco de demonstração é criado de forma coerente e que o sistema funciona com ele."""
-
     def rodar(self, *args):
         saida = StringIO()
         call_command('popular_demo', *args, stdout=saida)
@@ -26,7 +24,6 @@ class PopularDemoTests(TestCase):
         self.assertEqual(Funcionario.objects.count(), 8)
         self.assertEqual(Equipamento.objects.count(), 12)
         self.assertGreaterEqual(Triagem.objects.count(), 60)
-        # a peça trocada sempre pertence ao catálogo do modelo
         for t in Triagem.objects.exclude(peca_trocada=None).select_related('equipamento'):
             self.assertTrue(t.equipamento.pecas.filter(pk=t.peca_trocada_id).exists())
 
@@ -35,10 +32,10 @@ class PopularDemoTests(TestCase):
         admin = FuncionarioService.autenticar(1001, 'Demo@2026')
         self.assertIsNotNone(admin)
         self.assertFalse(admin.primeiro_acesso)
-        novo = FuncionarioService.autenticar(1008, '1008')       # senha provisória = matrícula
+        novo = FuncionarioService.autenticar(1008, '1008')
         self.assertIsNotNone(novo)
         self.assertTrue(novo.primeiro_acesso)
-        self.assertTrue(SolicitacaoSenha.objects.filter(atendida=False).exists())   # pedido pendente para o painel
+        self.assertTrue(SolicitacaoSenha.objects.filter(atendida=False).exists())
 
     def test_recusa_banco_com_dados_e_limpar_recria(self):
         args = ('--quantidade', '20', '--dias', '15', '--sem-fotos')

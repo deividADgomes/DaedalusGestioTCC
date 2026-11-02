@@ -36,7 +36,6 @@
 {% block content %}
 <div class="flex-1 overflow-y-auto p-4 md:p-8 space-y-5 bg-[#0f172a]">
 
-    <!-- Filtros analíticos (também recebem os cliques dos gráficos) -->
     <div class="bg-[#1e293b] rounded-xl border border-[#334155] p-4 space-y-3">
         <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
             <select id="f-prestadora" class="filtro-sel bg-[#0f172a] text-xs text-slate-300 border border-[#334155] rounded px-2 py-2 outline-none"></select>
@@ -53,7 +52,6 @@
         </div>
     </div>
 
-    <!-- Estado vazio -->
     <div id="estado-vazio" class="hidden bg-[#1e293b] rounded-xl border border-dashed border-[#334155] p-10 text-center">
         <p class="text-slate-300 font-bold">Nenhuma triagem encontrada para esses filtros.</p>
         <p class="text-xs text-slate-500 mt-1">Amplie o período ou remova algum filtro.</p>
@@ -61,7 +59,6 @@
 
     <div id="conteudo-dashboard" class="space-y-5">
 
-        <!-- KPIs -->
         <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
             <div class="bg-[#1e293b] p-4 rounded-xl border border-[#334155]">
                 <p class="text-[10px] text-slate-400 font-bold uppercase">Triagens</p>
@@ -107,7 +104,6 @@
             </div>
         </div>
 
-        <!-- Abas por decisão -->
         <div class="flex gap-1 border-b border-[#334155] overflow-x-auto">
             <button data-tab="geral" class="tab-btn px-4 py-2 text-xs font-bold uppercase whitespace-nowrap">Visão geral</button>
             <button data-tab="tecnicos" class="tab-btn px-4 py-2 text-xs font-bold uppercase whitespace-nowrap">Técnicos</button>
@@ -115,7 +111,6 @@
             <button data-tab="detalhe" class="tab-btn px-4 py-2 text-xs font-bold uppercase whitespace-nowrap">Detalhe</button>
         </div>
 
-        <!-- VISÃO GERAL -->
         <section id="tab-geral" class="tab-panel space-y-5">
             <div class="grid grid-cols-1 xl:grid-cols-12 gap-5">
                 <div class="xl:col-span-5 bg-[#1e293b] rounded-xl border border-[#334155] p-5">
@@ -143,7 +138,6 @@
             </div>
         </section>
 
-        <!-- TÉCNICOS -->
         <section id="tab-tecnicos" class="tab-panel hidden space-y-5">
             <div class="grid grid-cols-1 xl:grid-cols-12 gap-5">
                 <div class="xl:col-span-6 bg-[#1e293b] rounded-xl border border-[#334155] p-5">
@@ -174,7 +168,6 @@
             </div>
         </section>
 
-        <!-- CAUSAS -->
         <section id="tab-causas" class="tab-panel hidden space-y-5">
             <div class="grid grid-cols-1 xl:grid-cols-2 gap-5">
                 <div class="bg-[#1e293b] rounded-xl border border-[#334155] p-5">
@@ -211,7 +204,6 @@
             </div>
         </section>
 
-        <!-- DETALHE -->
         <section id="tab-detalhe" class="tab-panel hidden">
             <div class="bg-[#1e293b] rounded-xl border border-[#334155] p-5">
                 <div class="flex items-center justify-between mb-3">

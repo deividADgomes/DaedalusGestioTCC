@@ -1,14 +1,3 @@
-"""
-Cliente do HP PartSurfer.
-
-Adaptado do script teste_API-HP.py. Em vez de imprimir no console, as funções
-retornam dados e levantam PartSurferError, que as views traduzem para JSON.
-
-ATENÇÃO: o endpoint /bff/proxy/get não é uma API pública documentada da HP.
-O formato pode mudar ou o acesso pode ser bloqueado a qualquer momento.
-Por isso o PartSurfer só é consultado quando o usuário pede (ver
-EquipamentoService.consultar_partsurfer) e o usuário escolhe quais peças salvar.
-"""
 import logging
 from typing import Dict, List
 from urllib.parse import quote
@@ -18,7 +7,8 @@ import requests
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://partsurfer.hpcloud.hp.com/bff"
-PARTSURFER_URL = "https://partsurfer.hp.com/"
+ORIGEM = "https://partsurfer.hp.com"
+PARTSURFER_URL = f"{ORIGEM}/"
 COUNTRY = "US"
 USERTYPE = "EXT"
 TIMEOUT = 15
@@ -37,11 +27,14 @@ HEADERS_BASE = {
 
 
 class PartSurferError(Exception):
-    """Falha ao consultar o PartSurfer (rede, resposta inesperada, bloqueio...)."""
+    pass
+
+
+def _cabecalhos_da_api(**extras: str) -> Dict[str, str]:
+    return {**HEADERS_BASE, "Referer": PARTSURFER_URL, "Origin": ORIGEM, **extras}
 
 
 def _iniciar_sessao(session: requests.Session) -> None:
-    """Acessa a home do PartSurfer para estabelecer a sessão e os cookies."""
     headers = {
         "Accept": (
             "text/html,application/xhtml+xml,application/xml;q=0.9,"
@@ -50,30 +43,19 @@ def _iniciar_sessao(session: requests.Session) -> None:
         "Accept-Language": HEADERS_BASE["Accept-Language"],
         "User-Agent": USER_AGENT,
     }
-    resp = session.get(PARTSURFER_URL, headers=headers, timeout=TIMEOUT)
-    resp.raise_for_status()
+    resposta = session.get(PARTSURFER_URL, headers=headers, timeout=TIMEOUT)
+    resposta.raise_for_status()
 
 
 def _obter_hpiuid(session: requests.Session) -> str:
-    """
-    Chama o VerifyLogin e extrai o HPIUID.
-    Formato esperado da resposta:  valor_base64:HPIUID=...
-    """
     url = f"{BASE_URL}/proxy/get?input=/LogIn/VerifyLogin"
-    headers = {
-        **HEADERS_BASE,
-        "Referer": PARTSURFER_URL,
-        "Origin": "https://partsurfer.hp.com",
-    }
-    resp = session.get(url, headers=headers, timeout=TIMEOUT)
+    resposta = session.get(url, headers=_cabecalhos_da_api(), timeout=TIMEOUT)
 
-    if resp.status_code != 200:
-        logger.warning("PartSurfer VerifyLogin retornou HTTP %s", resp.status_code)
-        raise PartSurferError(
-            f"O PartSurfer recusou a autenticação (HTTP {resp.status_code})."
-        )
+    if resposta.status_code != 200:
+        logger.warning("PartSurfer VerifyLogin retornou HTTP %s", resposta.status_code)
+        raise PartSurferError(f"O PartSurfer recusou a autenticação (HTTP {resposta.status_code}).")
 
-    dados = resp.text.strip()
+    dados = resposta.text.strip()
     if not dados or ":" not in dados:
         raise PartSurferError("Formato inesperado retornado pelo VerifyLogin.")
 
@@ -84,37 +66,25 @@ def _obter_hpiuid(session: requests.Session) -> str:
     return hpiuid
 
 
-def _consultar_produto(
-    session: requests.Session, hpiuid: str, product_number: str
-) -> List[Dict[str, str]]:
+def _consultar_produto(session: requests.Session, hpiuid: str, product_number: str) -> List[Dict[str, str]]:
     url = (
         f"{BASE_URL}/proxy/get?input=/Product/GetProduct/"
         f"{quote(product_number, safe='')}"
         f"/country/{COUNTRY}/usertype/{USERTYPE}"
     )
-    headers = {
-        **HEADERS_BASE,
-        "Referer": PARTSURFER_URL,
-        "Origin": "https://partsurfer.hp.com",
-        # O VerifyLogin devolve o contexto neste formato (HPIUID=...).
-        "Cookie": hpiuid,
-    }
-    resp = session.get(url, headers=headers, timeout=TIMEOUT)
+    resposta = session.get(url, headers=_cabecalhos_da_api(Cookie=hpiuid), timeout=TIMEOUT)
 
-    if resp.status_code != 200:
-        logger.warning("PartSurfer GetProduct retornou HTTP %s", resp.status_code)
-        raise PartSurferError(
-            f"O PartSurfer retornou HTTP {resp.status_code} para o PN {product_number}."
-        )
+    if resposta.status_code != 200:
+        logger.warning("PartSurfer GetProduct retornou HTTP %s", resposta.status_code)
+        raise PartSurferError(f"O PartSurfer retornou HTTP {resposta.status_code} para o PN {product_number}.")
 
     try:
-        dados = resp.json()
+        dados = resposta.json()
     except ValueError as erro:
         raise PartSurferError("A HP não retornou uma resposta JSON válida.") from erro
 
     body = dados.get("Body") if isinstance(dados, dict) else None
     if body is None:
-        # Produto inexistente costuma vir sem Body; tratamos como "sem peças".
         return []
     if not isinstance(body, list):
         raise PartSurferError("O campo 'Body' da resposta não tem o formato esperado.")
@@ -135,7 +105,6 @@ def _consultar_produto(
 
 
 def _remover_duplicidades(pecas: List[Dict[str, str]]) -> List[Dict[str, str]]:
-    """Remove part numbers repetidos, mantendo a primeira ocorrência e a ordem."""
     vistos = set()
     resultado = []
     for peca in pecas:
@@ -147,11 +116,6 @@ def _remover_duplicidades(pecas: List[Dict[str, str]]) -> List[Dict[str, str]]:
 
 
 def buscar_pecas_por_pn(product_number: str) -> List[Dict[str, str]]:
-    """
-    Retorna as peças do produto como [{'part_number': ..., 'descricao': ...}],
-    sem duplicidades. Lista vazia = o PartSurfer não conhece peças para o PN.
-    Levanta PartSurferError em qualquer falha de comunicação.
-    """
     product_number = (product_number or "").strip().upper()
     if not product_number:
         raise PartSurferError("Product Number não informado.")

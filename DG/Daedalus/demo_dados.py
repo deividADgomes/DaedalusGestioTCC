@@ -1,36 +1,29 @@
-"""
-Gerador dos dados de demonstração do Daedalus Gestio (somente Python, sem Django).
-
-Tudo aqui é FICTÍCIO: empresas, CNPJs, pessoas, números de série e números de peça.
-O comando `python manage.py popular_demo` usa este módulo para gravar os dados no banco.
-
-Os dados são montados para que o dashboard conte uma história durante a apresentação:
-- um técnico fora do limite de controle (crítico), um em atenção, um destaque e um com amostra pequena;
-- um modelo que concentra o NFF (peça funcional trocada sem necessidade);
-- NFF em alta nas últimas semanas, diagnósticos divergentes e séries reincidentes.
-"""
 import random
 import zlib
-from datetime import date, datetime, time, timedelta
+from datetime import datetime, time, timedelta
+
+from .dtos import CargoFuncionario, StatusPeca, TipoEmpresa
 
 SEED_PADRAO = 56
 SENHA_DEMO = 'Demo@2026'
 EMAIL_DOMINIO = 'daedalusdemo.com.br'
 
 
-def cnpj_valido(base8):
-    """CNPJ de 14 dígitos (8 da base + filial 0001 + dígitos verificadores)."""
-    nums = [int(c) for c in f'{base8:08d}0001']
-    for pesos in ([5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2], [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]):
-        soma = sum(n * p for n, p in zip(nums, pesos))
+PESOS_DO_CNPJ = (
+    [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2],
+    [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2],
+)
+
+
+def cnpj_valido(base_de_8_digitos):
+    digitos = [int(caractere) for caractere in f'{base_de_8_digitos:08d}0001']
+    for pesos in PESOS_DO_CNPJ:
+        soma = sum(digito * peso for digito, peso in zip(digitos, pesos))
         resto = soma % 11
-        nums.append(0 if resto < 2 else 11 - resto)
-    return ''.join(map(str, nums))
+        digitos.append(0 if resto < 2 else 11 - resto)
+    return ''.join(map(str, digitos))
 
 
-# ------------------------------------------------------------------
-# Empresas, pessoas e modelos
-# ------------------------------------------------------------------
 PRESTADORAS = [
     ('TecField Assistência Técnica Ltda', 11250031, ['SP', 'MG']),
     ('Rede Norte Serviços de TI Ltda', 22340144, ['BA', 'PE', 'GO']),
@@ -50,28 +43,28 @@ CIDADES = {
     'RJ': ['Rio de Janeiro', 'Niterói', 'Volta Redonda'], 'PR': ['Curitiba', 'Londrina', 'Maringá'],
     'RS': ['Porto Alegre', 'Caxias do Sul', 'Pelotas'],
 }
-# nome, prestadora (índice), probabilidade de NFF, peso de volume
 TECNICOS = [
     ('Rafael Moreira', 0, 0.22, 14), ('Bruno Tavares', 0, 0.70, 12), ('Camila Duarte', 0, 0.27, 10),
     ('Marcos Vinícius Lopes', 1, 0.30, 11), ('Aline Ferraz', 1, 0.10, 9), ('Jonas Pacheco', 1, 0.50, 9),
     ('Patrícia Nogueira', 2, 0.25, 10), ('Diego Andrade', 2, 0.33, 8), ('Letícia Barros', 2, 0.28, 7),
     ('Eduardo Ramos', 3, 0.30, 8), ('Sérgio Matos', 3, 0.26, 6), ('Natália Freitas', 3, 0.35, 0.9),
 ]
-# login, cargo, nome, primeiro_acesso
 FUNCIONARIOS = [
-    (1001, 'Administrador', 'Carlos Eduardo Mendes', False),
-    (1002, 'Gestor', 'Fernanda Lima Rocha', False),
-    (1003, 'Analista de Triagem', 'Juliana Prado', False),
-    (1004, 'Analista de Triagem', 'Thiago Cardoso', False),
-    (1005, 'Analista de Triagem', 'Beatriz Almeida', False),
-    (1006, 'Analista de Triagem', 'Rodrigo Silveira', False),
-    (1007, 'Funcionário', 'Marina Duarte', False),
-    (1008, 'Funcionário', 'Lucas Pereira', True),     # senha = matrícula: demonstra o primeiro acesso
+    (1001, CargoFuncionario.ADMINISTRADOR.value, 'Carlos Eduardo Mendes', False),
+    (1002, CargoFuncionario.GESTOR.value, 'Fernanda Lima Rocha', False),
+    (1003, CargoFuncionario.ANALISTA_TRIAGEM.value, 'Juliana Prado', False),
+    (1004, CargoFuncionario.ANALISTA_TRIAGEM.value, 'Thiago Cardoso', False),
+    (1005, CargoFuncionario.ANALISTA_TRIAGEM.value, 'Beatriz Almeida', False),
+    (1006, CargoFuncionario.ANALISTA_TRIAGEM.value, 'Rodrigo Silveira', False),
+    (1007, CargoFuncionario.FUNCIONARIO.value, 'Marina Duarte', False),
+    (1008, CargoFuncionario.FUNCIONARIO.value, 'Lucas Pereira', True),
 ]
 ANALISTAS = [1003, 1004, 1005, 1006]
+MATRICULA_GESTOR = 1002
+MATRICULA_SOLICITANTE_PENDENTE = 1007
+MATRICULA_SOLICITANTE_ATENDIDO = 1005
 
 NOTEBOOK, DESKTOP, IMPRESSORA = 'notebook', 'desktop', 'impressora'
-# pn, modelo, família, peso de volume, reforço de NFF
 MODELOS = [
     ('8GM15LA', 'HP ProBook 450 G9 Notebook', NOTEBOOK, 5.0, 1.45),
     ('6S6Y2LA', 'HP EliteBook 840 G8 Notebook', NOTEBOOK, 3.0, 1.0),
@@ -87,7 +80,6 @@ MODELOS = [
     ('0J3V5LA', 'HP OfficeJet Pro 9010', IMPRESSORA, 1.0, 1.0),
 ]
 
-# tipo de peça: rótulo, peso de falha, famílias, textos
 TIPOS = {
     'bateria': dict(rotulo='Bateria', peso=22, fam=[NOTEBOOK],
         queixas=['Bateria dura poucos minutos', 'Notebook desliga ao tirar da tomada', 'Bateria não carrega'],
@@ -181,135 +173,247 @@ TIPOS = {
         teste_ok='Inicialização completa e impressão de página de teste',
         teste_falha='Impressora não conclui a inicialização'),
 }
+
 LEGENDAS = ['Peça retornada, vista frontal', 'Etiqueta com número de série', 'Detalhe do conector',
             'Teste na bancada', 'Peça retornada, vista posterior', 'Embalagem recebida']
 
 
+SERIES_REINCIDENTES = 14
+PROBABILIDADE_SEM_PECA = 0.08
+PROBABILIDADE_DEFEITO_COM_CAUSA_ESPECIFICA = 0.3
+PROBABILIDADE_DIAGNOSTICO_CONFIRMADO = 0.7
+PROBABILIDADE_FOTO_NFF = 0.7
+PROBABILIDADE_FOTO_DEFEITO = 0.35
+DIAS_DA_RAMPA_DE_NFF = 28
+TICKET_INICIAL = 481200
+
+
 def _pn_peca(modelo_pn, tipo, usados):
-    comp = TIPOS[tipo].get('compartilhado')
-    if comp:
-        return comp
-    n = zlib.crc32(f'{modelo_pn}-{tipo}'.encode()) % 90000 + 10000
-    pn = f'L{n}-001'
-    while pn in usados:
-        n += 1
-        pn = f'L{n}-001'
-    return pn
+    compartilhado = TIPOS[tipo].get('compartilhado')
+    if compartilhado:
+        return compartilhado
+    numero = zlib.crc32(f'{modelo_pn}-{tipo}'.encode()) % 90000 + 10000
+    part_number = f'L{numero}-001'
+    while part_number in usados:
+        numero += 1
+        part_number = f'L{numero}-001'
+    return part_number
 
 
 def _sn(rng):
-    letras, alnum = 'ABCDEFGHJKLMNPQRSTUVWXYZ', 'ABCDEFGHJKLMNPQRSTUVWXYZ0123456789'
-    return f"{rng.randint(1, 9)}{''.join(rng.choice(letras) for _ in range(2))}{rng.randint(100, 999)}{''.join(rng.choice(alnum) for _ in range(4))}"
+    letras, alfanumericos = 'ABCDEFGHJKLMNPQRSTUVWXYZ', 'ABCDEFGHJKLMNPQRSTUVWXYZ0123456789'
+    prefixo = rng.randint(1, 9)
+    parte_letras = ''.join(rng.choice(letras) for _ in range(2))
+    meio = rng.randint(100, 999)
+    sufixo = ''.join(rng.choice(alfanumericos) for _ in range(4))
+    return f"{prefixo}{parte_letras}{meio}{sufixo}"
 
 
 def _escolher(rng, itens, pesos):
     return rng.choices(itens, weights=pesos, k=1)[0]
 
 
-def gerar(hoje, total=420, dias=120, seed=SEED_PADRAO):
-    """Devolve um dicionário com todos os dados (listas de dicts) prontos para gravar."""
-    rng = random.Random(seed)
-    empresas = [dict(razao_social=n, cnpj=cnpj_valido(b), tipo=1) for n, b, _ in PRESTADORAS]
-    empresas += [dict(razao_social=n, cnpj=cnpj_valido(b), tipo=2) for n, b, _ in CLIENTES]
-    tecnicos = [dict(nome=n, prestadora_cnpj=empresas[i]['cnpj'], p_nff=p, peso=w) for n, i, p, w in TECNICOS]
-    funcionarios = []
-    for login, cargo, nome, primeiro in FUNCIONARIOS:
-        primeiro_nome = nome.split()[0].lower().replace('á', 'a').replace('í', 'i')
-        ultimo = nome.split()[-1].lower().replace('á', 'a').replace('í', 'i')
-        funcionarios.append(dict(login=login, cargo=cargo, nome=nome, primeiro_acesso=primeiro,
-                                 email=f'{primeiro_nome}.{ultimo}@{EMAIL_DOMINIO}'))
+def _sem_acento(parte):
+    return parte.lower().replace('á', 'a').replace('í', 'i')
 
-    # catálogo de peças e modelos
-    pecas, modelos, usados = {}, [], set()
-    for pn, nome, fam, peso, reforco in MODELOS:
-        tipos = [t for t, d in TIPOS.items() if fam in d['fam']]
-        if fam == NOTEBOOK:
-            tipos = [t for t in tipos if rng.random() < 0.92 or t in ('bateria', 'tela', 'placa')]
-        ligadas = []
-        for t in tipos:
-            ppn = _pn_peca(pn, t, usados)
-            if ppn not in pecas:
-                usados.add(ppn)
-                desc = (f"{TIPOS[t]['rotulo']} compatível com vários modelos" if TIPOS[t].get('compartilhado')
-                        else f"{TIPOS[t]['rotulo']} para {nome}")
-                pecas[ppn] = dict(part_number=ppn, descricao=desc)
-            ligadas.append((t, ppn))
-        modelos.append(dict(pn=pn, modelo=nome, familia=fam, peso=peso, reforco=reforco, pecas=ligadas))
 
-    # triagens
-    inicio = hoje - timedelta(days=dias)
-    datas = [inicio + timedelta(days=i) for i in range(dias)]          # até ontem
-    pesos_dia = []
-    for i, d in enumerate(datas):
-        base = 0.6 + 0.8 * i / (dias - 1)                              # volume cresce ao longo do período
-        pesos_dia.append(base * (0.03 if d.weekday() >= 5 else 1.0))
-    ultimo_ticket, linhas = 481200, []
+def _email_do_funcionario(nome):
+    partes = nome.split()
+    return f'{_sem_acento(partes[0])}.{_sem_acento(partes[-1])}@{EMAIL_DOMINIO}'
 
-    def uma_triagem(sn=None, modelo=None, data=None, tecnico=None):
-        t = tecnico or _escolher(rng, tecnicos, [x['peso'] for x in tecnicos])
-        pres_idx = next(i for i, e in enumerate(empresas) if e['cnpj'] == t['prestadora_cnpj'])
-        uf = rng.choice(PRESTADORAS[pres_idx][2])
-        cliente = _escolher(rng, empresas[len(PRESTADORAS):], [c[2] for c in CLIENTES])
-        m = modelo or _escolher(rng, modelos, [x['peso'] for x in modelos])
-        tipo, ppn = _escolher(rng, m['pecas'], [TIPOS[t_]['peso'] for t_, _ in m['pecas']])
-        d = data or _escolher(rng, datas, pesos_dia)
-        dias_atras = (hoje - d).days
-        rampa = 1.0 + 0.5 * max(0, 28 - dias_atras) / 28                  # NFF em alta nas últimas 4 semanas
-        p = min(0.92, t['p_nff'] * m['reforco'] * rampa)
-        nff = rng.random() < p
-        return dict(tecnico=t, cliente=cliente, uf=uf, m=m, tipo=tipo, ppn=ppn, data=d, nff=nff, sn=sn or _sn(rng))
 
-    sementes = [uma_triagem() for _ in range(total)]
-    # reincidências: 14 séries voltam 2 ou 3 vezes (mesmo modelo, intervalo mínimo de 10 dias)
-    extras = []
-    for base in rng.sample(sementes, 14):
-        for _ in range(rng.choice([1, 1, 2])):
-            novo_dia = base['data'] + timedelta(days=rng.randint(10, 30))
-            if novo_dia <= hoje - timedelta(days=1):
-                extras.append(uma_triagem(sn=base['sn'], modelo=base['m'], data=novo_dia))
-    sementes += extras
-    sementes.sort(key=lambda s: s['data'])
+class GeradorDemo:
+    def __init__(self, hoje, total, dias, seed):
+        self.hoje = hoje
+        self.total = total
+        self.dias = dias
+        self.rng = random.Random(seed)
+        self.modelos = []
+        self.empresas = self._montar_empresas()
+        self.clientes = self.empresas[len(PRESTADORAS):]
+        self.tecnicos = self._montar_tecnicos()
+        self.funcionarios = self._montar_funcionarios()
+        self.datas, self.pesos_dos_dias = self._montar_calendario()
 
-    for s in sementes:
-        k = TIPOS[s['tipo']]
-        hora = time(rng.randint(8, 17), rng.randint(0, 59))
-        ultimo_ticket += rng.randint(1, 9)
-        diag = rng.choice(k['diag'])
-        if s['nff']:
-            constatado = rng.choice(k['nff'])
-            testes = k['teste_ok']
+    @staticmethod
+    def _montar_empresas():
+        prestadoras = [
+            dict(razao_social=nome, cnpj=cnpj_valido(base), tipo=TipoEmpresa.PRESTADORA.value)
+            for nome, base, _ in PRESTADORAS
+        ]
+        clientes = [
+            dict(razao_social=nome, cnpj=cnpj_valido(base), tipo=TipoEmpresa.CLIENTE.value)
+            for nome, base, _ in CLIENTES
+        ]
+        return prestadoras + clientes
+
+    def _montar_tecnicos(self):
+        return [
+            dict(nome=nome, prestadora_cnpj=self.empresas[indice]['cnpj'], p_nff=probabilidade, peso=peso)
+            for nome, indice, probabilidade, peso in TECNICOS
+        ]
+
+    @staticmethod
+    def _montar_funcionarios():
+        return [
+            dict(
+                login=login, cargo=cargo, nome=nome, primeiro_acesso=primeiro_acesso,
+                email=_email_do_funcionario(nome),
+            )
+            for login, cargo, nome, primeiro_acesso in FUNCIONARIOS
+        ]
+
+    def _montar_calendario(self):
+        inicio = self.hoje - timedelta(days=self.dias)
+        datas = [inicio + timedelta(days=i) for i in range(self.dias)]
+        pesos = []
+        for indice, data in enumerate(datas):
+            crescimento = 0.6 + 0.8 * indice / (self.dias - 1)
+            fator_fim_de_semana = 0.03 if data.weekday() >= 5 else 1.0
+            pesos.append(crescimento * fator_fim_de_semana)
+        return datas, pesos
+
+    def _montar_catalogo(self):
+        rng = self.rng
+        pecas, modelos, usados = {}, [], set()
+        for pn, nome, familia, peso, reforco in MODELOS:
+            tipos = [tipo for tipo, dados in TIPOS.items() if familia in dados['fam']]
+            if familia == NOTEBOOK:
+                tipos = [tipo for tipo in tipos if rng.random() < 0.92 or tipo in ('bateria', 'tela', 'placa')]
+
+            ligadas = []
+            for tipo in tipos:
+                part_number = _pn_peca(pn, tipo, usados)
+                if part_number not in pecas:
+                    usados.add(part_number)
+                    rotulo = TIPOS[tipo]['rotulo']
+                    descricao = (
+                        f"{rotulo} compatível com vários modelos"
+                        if TIPOS[tipo].get('compartilhado')
+                        else f"{rotulo} para {nome}"
+                    )
+                    pecas[part_number] = dict(part_number=part_number, descricao=descricao)
+                ligadas.append((tipo, part_number))
+            modelos.append(dict(pn=pn, modelo=nome, familia=familia, peso=peso, reforco=reforco, pecas=ligadas))
+        self.modelos = modelos
+        return list(pecas.values())
+
+    def _sortear_triagem(self, sn=None, modelo=None, data=None):
+        rng = self.rng
+        tecnico = _escolher(rng, self.tecnicos, [t['peso'] for t in self.tecnicos])
+        indice_prestadora = next(i for i, e in enumerate(self.empresas) if e['cnpj'] == tecnico['prestadora_cnpj'])
+        uf = rng.choice(PRESTADORAS[indice_prestadora][2])
+        cliente = _escolher(rng, self.clientes, [c[2] for c in CLIENTES])
+        modelo = modelo or _escolher(rng, self.modelos, [m['peso'] for m in self.modelos])
+        tipo, part_number = _escolher(rng, modelo['pecas'], [TIPOS[t]['peso'] for t, _ in modelo['pecas']])
+        data = data or _escolher(rng, self.datas, self.pesos_dos_dias)
+
+        dias_atras = (self.hoje - data).days
+        rampa = 1.0 + 0.5 * max(0, DIAS_DA_RAMPA_DE_NFF - dias_atras) / DIAS_DA_RAMPA_DE_NFF
+        probabilidade_nff = min(0.92, tecnico['p_nff'] * modelo['reforco'] * rampa)
+        nff = rng.random() < probabilidade_nff
+        return dict(
+            tecnico=tecnico, cliente=cliente, uf=uf, m=modelo, tipo=tipo, ppn=part_number,
+            data=data, nff=nff, sn=sn or _sn(rng),
+        )
+
+    def _sortear_reincidencias(self, sementes):
+        rng = self.rng
+        ontem = self.hoje - timedelta(days=1)
+        extras = []
+        for base in rng.sample(sementes, min(SERIES_REINCIDENTES, len(sementes))):
+            for _ in range(rng.choice([1, 1, 2])):
+                novo_dia = base['data'] + timedelta(days=rng.randint(10, 30))
+                if novo_dia <= ontem:
+                    extras.append(self._sortear_triagem(sn=base['sn'], modelo=base['m'], data=novo_dia))
+        return extras
+
+    def _parecer_da_bancada(self, tipo, diagnostico, nff):
+        rng = self.rng
+        if nff:
+            constatado = rng.choice(tipo['nff'])
+            testes = tipo['teste_ok']
             analise = f"Peça retornada submetida a testes de bancada. {testes}. {constatado}."
             conclusao = 'Peça funcional (NFF): a troca em campo não era necessária.'
-            status = 1
-        else:
-            if rng.random() < 0.7:
-                constatado = diag.lower() if rng.random() < 0.3 else diag
-                conclusao = 'Defeito confirmado. O diagnóstico do técnico de campo procede.'
-            else:
-                constatado = rng.choice(k['esp'])
-                conclusao = 'Defeito confirmado, com causa mais específica que a informada em campo.'
-            testes = k['teste_falha']
-            analise = f"Peça retornada submetida a testes de bancada. {testes}. Defeito confirmado: {constatado}."
-            status = 2
-        sem_peca = rng.random() < 0.08
-        linha = dict(
-            n_ticket=ultimo_ticket, nf=rng.randint(100000, 999999), cidade=rng.choice(CIDADES[s['uf']]), estado=s['uf'],
-            tecnico_nome=s['tecnico']['nome'], cliente_cnpj=s['cliente']['cnpj'], modelo_pn=s['m']['pn'],
-            analista_chamado=rng.choice(ANALISTAS + [1002]), analista_triagem=rng.choice(ANALISTAS),
-            sn=s['sn'], status=status, data=datetime.combine(s['data'], hora),
-            peca_pn=None if sem_peca else s['ppn'],
-            troca=('Troca do equipamento completo' if sem_peca else
-                   rng.choice(['Substituição da peça em campo', 'Peça trocada conforme diagnóstico do técnico',
-                               'Troca realizada durante o chamado'])),
-            defeito_usuario=rng.choice(k['queixas']), defeito_tecnico=diag, defeito_constatado=constatado,
-            testes=testes, analise=analise, conclusao=conclusao, tipo_peca=s['tipo'], fotos=[])
-        # fotos: mais comuns nos casos de NFF (servem de evidência)
-        if rng.random() < (0.7 if status == 1 else 0.35):
-            for legenda in rng.sample(LEGENDAS, rng.choice([1, 2, 2, 3])):
-                linha['fotos'].append(dict(tipo=s['tipo'], legenda=legenda))
-        linhas.append(linha)
+            return StatusPeca.FUNCIONAL.value, constatado, testes, analise, conclusao
 
-    # pedidos de senha: um pendente (aparece no painel do administrador) e um já atendido
-    solicitacoes = [dict(login=1007, atendida=False, dias_atras=0), dict(login=1005, atendida=True, dias_atras=9)]
-    return dict(empresas=empresas, tecnicos=tecnicos, funcionarios=funcionarios, pecas=list(pecas.values()),
-                modelos=modelos, triagens=linhas, solicitacoes=solicitacoes)
+        if rng.random() < PROBABILIDADE_DIAGNOSTICO_CONFIRMADO:
+            constatado = (
+                diagnostico.lower() if rng.random() < PROBABILIDADE_DEFEITO_COM_CAUSA_ESPECIFICA else diagnostico
+            )
+            conclusao = 'Defeito confirmado. O diagnóstico do técnico de campo procede.'
+        else:
+            constatado = rng.choice(tipo['esp'])
+            conclusao = 'Defeito confirmado, com causa mais específica que a informada em campo.'
+        testes = tipo['teste_falha']
+        analise = f"Peça retornada submetida a testes de bancada. {testes}. Defeito confirmado: {constatado}."
+        return StatusPeca.NAO_FUNCIONAL.value, constatado, testes, analise, conclusao
+
+    def _sortear_fotos(self, semente, status):
+        rng = self.rng
+        probabilidade = PROBABILIDADE_FOTO_NFF if status == StatusPeca.FUNCIONAL else PROBABILIDADE_FOTO_DEFEITO
+        if rng.random() >= probabilidade:
+            return []
+        legendas = rng.sample(LEGENDAS, rng.choice([1, 2, 2, 3]))
+        return [dict(tipo=semente['tipo'], legenda=legenda) for legenda in legendas]
+
+    def _montar_triagem(self, semente, ticket):
+        rng = self.rng
+        tipo = TIPOS[semente['tipo']]
+        hora = time(rng.randint(8, 17), rng.randint(0, 59))
+        ticket += rng.randint(1, 9)
+        diagnostico = rng.choice(tipo['diag'])
+        status, constatado, testes, analise, conclusao = self._parecer_da_bancada(tipo, diagnostico, semente['nff'])
+        sem_peca = rng.random() < PROBABILIDADE_SEM_PECA
+
+        triagem = dict(
+            n_ticket=ticket, nf=rng.randint(100000, 999999), cidade=rng.choice(CIDADES[semente['uf']]),
+            estado=semente['uf'], tecnico_nome=semente['tecnico']['nome'],
+            cliente_cnpj=semente['cliente']['cnpj'], modelo_pn=semente['m']['pn'],
+            analista_chamado=rng.choice(ANALISTAS + [MATRICULA_GESTOR]), analista_triagem=rng.choice(ANALISTAS),
+            sn=semente['sn'], status=status, data=datetime.combine(semente['data'], hora),
+            peca_pn=None if sem_peca else semente['ppn'],
+            troca=(
+                'Troca do equipamento completo' if sem_peca else
+                rng.choice([
+                    'Substituição da peça em campo',
+                    'Peça trocada conforme diagnóstico do técnico',
+                    'Troca realizada durante o chamado',
+                ])
+            ),
+            defeito_usuario=rng.choice(tipo['queixas']), defeito_tecnico=diagnostico,
+            defeito_constatado=constatado, testes=testes, analise=analise, conclusao=conclusao,
+            tipo_peca=semente['tipo'], fotos=[],
+        )
+        triagem['fotos'] = self._sortear_fotos(semente, status)
+        return triagem, ticket
+
+    def _montar_triagens(self):
+        sementes = [self._sortear_triagem() for _ in range(self.total)]
+        sementes += self._sortear_reincidencias(sementes)
+        sementes.sort(key=lambda semente: semente['data'])
+
+        triagens, ticket = [], TICKET_INICIAL
+        for semente in sementes:
+            triagem, ticket = self._montar_triagem(semente, ticket)
+            triagens.append(triagem)
+        return triagens
+
+    @staticmethod
+    def _montar_solicitacoes_de_senha():
+        return [
+            dict(login=MATRICULA_SOLICITANTE_PENDENTE, atendida=False, dias_atras=0),
+            dict(login=MATRICULA_SOLICITANTE_ATENDIDO, atendida=True, dias_atras=9),
+        ]
+
+    def gerar(self):
+        pecas = self._montar_catalogo()
+        triagens = self._montar_triagens()
+        return dict(
+            empresas=self.empresas, tecnicos=self.tecnicos, funcionarios=self.funcionarios, pecas=pecas,
+            modelos=self.modelos, triagens=triagens, solicitacoes=self._montar_solicitacoes_de_senha(),
+        )
+
+
+def gerar(hoje, total=420, dias=120, seed=SEED_PADRAO):
+    return GeradorDemo(hoje, total, dias, seed).gerar()

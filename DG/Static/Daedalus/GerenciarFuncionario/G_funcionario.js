@@ -1,234 +1,219 @@
 "use strict";
-/// <reference path="../baseUI.ts" />
 (() => {
-    class G_funcionarioUI extends BaseUI {
+    const CARGO_ADMINISTRADOR = 'Administrador';
+    const CARGO_GESTOR = 'Gestor';
+    const CARGO_ANALISTA = 'Analista de Triagem';
+    const CARGO_FUNCIONARIO = 'Funcionário';
+    const CARGOS_SOMENTE_LEITURA = [CARGO_FUNCIONARIO, CARGO_ANALISTA];
+    const CARGOS_DE_GESTAO = [CARGO_ADMINISTRADOR, CARGO_GESTOR];
+    const COR_POR_CARGO = {
+        [CARGO_ADMINISTRADOR]: 'text-fuchsia-500',
+        [CARGO_GESTOR]: 'text-amber-500',
+        [CARGO_ANALISTA]: 'text-emerald-400',
+        [CARGO_FUNCIONARIO]: 'text-cyan-400',
+    };
+    const COR_CARGO_PADRAO = 'text-slate-400';
+    class FuncionarioUI extends BaseUI {
         constructor() {
-            super(); // Traz a lógica de menus do BaseUI
-            // Memória da tela: null = Inserção | number = Alteração
+            super();
+            this.botaoSalvar = obterElemento('btn-salvar-funcionario');
+            this.botaoLimpar = obterElemento('btn-limpar');
+            this.formulario = obterElemento('form-cadastro-funcionario');
+            this.listaFuncionarios = obterElemento('lista-funcionarios');
+            this.campoPesquisa = obterElemento('pesquisa-funcionario');
+            this.filtroCargo = obterElemento('filtro-cargo');
             this.idAtual = null;
-            // Mapeamento dos elementos
-            this.btnSalvar = document.getElementById('btn-salvar-funcionario');
-            this.btnLimpar = document.getElementById('btn-limpar');
-            this.form = document.getElementById('form-cadastro-funcionario');
-            this.listaFuncionarios = document.getElementById('lista-funcionarios');
+            this.funcionarios = [];
             this.iniciarEventos();
             this.carregarFuncionarios();
             this.carregarSolicitacoes();
-            this.verificarPermissoes(); // Applica as regras de bloqueio de tela
+            this.aplicarRestricoesDoCargo();
+        }
+        get cargoLogado() {
+            return document.body.dataset.cargo || '';
         }
         iniciarEventos() {
-            this.btnSalvar.addEventListener('click', () => this.salvarFuncionario());
-            this.btnLimpar.addEventListener('click', () => this.limparFormulario());
+            this.botaoSalvar.addEventListener('click', () => this.salvarFuncionario());
+            this.botaoLimpar.addEventListener('click', () => this.limparFormulario());
+            this.campoPesquisa.addEventListener('input', () => this.filtrarFuncionarios());
+            this.filtroCargo.addEventListener('change', () => this.filtrarFuncionarios());
         }
-        // ==========================================
-        // REGRA DE NEGÓCIO: CONTROLE DE ACESSO
-        // ==========================================
-        verificarPermissoes() {
-            // TODO: Substituir pela leitura real do usuário logado futuramente
-            const cargoUsuarioLogado = document.body.dataset.cargo || "";
-            if (cargoUsuarioLogado === "Funcionário" || cargoUsuarioLogado === "Analista de Triagem") {
-                // Bloqueia o formulário inteiro para leitura
-                const inputs = this.form.querySelectorAll('input, select');
-                inputs.forEach(input => input.disabled = true);
-                this.btnSalvar.style.display = 'none';
-                this.btnLimpar.style.display = 'none';
+        aplicarRestricoesDoCargo() {
+            if (CARGOS_SOMENTE_LEITURA.includes(this.cargoLogado)) {
+                this.formulario.querySelectorAll('input, select').forEach((campo) => {
+                    campo.disabled = true;
+                });
+                this.botaoSalvar.style.display = 'none';
+                this.botaoLimpar.style.display = 'none';
+                return;
             }
-            else if (cargoUsuarioLogado === "Gestor") {
-                // Remove as opções Administrador e Gestor do campo Select para que ele não consiga criar novos
-                const selectCargo = document.getElementById('cargo');
-                Array.from(selectCargo.options).forEach(option => {
-                    if (option.value === "Administrador" || option.value === "Gestor") {
-                        option.disabled = true; // Desabilita a opção na lista
-                        option.style.display = 'none'; // Esconde visualmente
+            if (this.cargoLogado === CARGO_GESTOR) {
+                Array.from(obterElemento('cargo').options).forEach((opcao) => {
+                    if (CARGOS_DE_GESTAO.includes(opcao.value)) {
+                        opcao.disabled = true;
+                        opcao.style.display = 'none';
                     }
                 });
             }
         }
-        // ==========================================
-        // LÓGICA DE SALVAR / ALTERAR (POST)
-        // ==========================================
-        async salvarFuncionario() {
-            const nome = document.getElementById('nome').value;
-            const cargo = document.getElementById('cargo').value;
-            const login = document.getElementById('login').value; // Pegamos como texto primeiro
-            const senha = document.getElementById('senha').value;
-            const email = document.getElementById('email').value.trim();
-            // 1. Validação de campos vazios
+        validarFormulario(nome, cargo, login, email, senha) {
             if (!nome || !cargo || !login || !email) {
-                alert("Preencha todos os campos obrigatórios (Nome, Cargo, Login e E-mail)!");
-                return;
+                return 'Preencha todos os campos obrigatórios (Nome, Cargo, Login e E-mail)!';
             }
-            // 2. NOVA VALIDAÇÃO: Verifica se o login possui APENAS números
-            const apenasNumeros = /^\d+$/;
-            if (!apenasNumeros.test(login)) {
-                alert("Formato Inválido: O campo 'Login de Acesso' deve conter apenas números (ex: matrícula).");
-                // Limpa o campo errado para o usuário tentar de novo
-                document.getElementById('login').value = "";
-                return;
+            if (!/^\d+$/.test(login)) {
+                definirValorDoCampo('login', '');
+                return "Formato Inválido: O campo 'Login de Acesso' deve conter apenas números (ex: matrícula).";
             }
-            // 3. Validação de senha para novos cadastros
             if (this.idAtual === null && !senha) {
-                alert("Para cadastrar um novo funcionário, a senha é obrigatória!");
+                return 'Para cadastrar um novo funcionário, a senha é obrigatória!';
+            }
+            if (this.cargoLogado === CARGO_GESTOR && CARGOS_DE_GESTAO.includes(cargo)) {
+                return 'Operação bloqueada: Você não tem privilégios para criar cargos de nível Gestor ou Administrador.';
+            }
+            return null;
+        }
+        async salvarFuncionario() {
+            const nome = valorDoCampo('nome');
+            const cargo = valorDoCampo('cargo');
+            const login = valorDoCampo('login');
+            const senha = valorDoCampo('senha');
+            const email = valorDoCampo('email').trim();
+            const erroDeValidacao = this.validarFormulario(nome, cargo, login, email, senha);
+            if (erroDeValidacao) {
+                alert(erroDeValidacao);
                 return;
             }
-            // O resto do código continua igual...
-            const cargoUsuarioLogado = document.body.dataset.cargo || "";
-            if (cargoUsuarioLogado === "Gestor" && (cargo === "Administrador" || cargo === "Gestor")) {
-                alert("Operação bloqueada: Você não tem privilégios para criar cargos de nível Gestor ou Administrador.");
-                return;
-            }
-            const dados = {
-                id: this.idAtual,
-                nome: nome,
-                cargo: cargo,
-                login: parseInt(login), // Agora é 100% seguro converter!
-                email: email,
-                senha: senha ? senha : null
-            };
             try {
-                const resposta = await fetch('/api/funcionario/', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(dados)
+                const resultado = await enviarJson('/api/funcionario/', {
+                    id: this.idAtual,
+                    nome,
+                    cargo,
+                    login: parseInt(login),
+                    email,
+                    senha: senha || null,
                 });
-                const resultado = await resposta.json();
-                if (resultado.status === 'sucesso') {
-                    alert(resultado.mensagem);
-                    this.limparFormulario();
-                    this.carregarFuncionarios();
-                    this.carregarSolicitacoes();
+                if (resultado.status !== 'sucesso') {
+                    alert('Erro: ' + resultado.mensagem);
+                    return;
                 }
-                else {
-                    alert("Erro: " + resultado.mensagem);
-                }
+                alert(resultado.mensagem);
+                this.limparFormulario();
+                this.carregarFuncionarios();
+                this.carregarSolicitacoes();
             }
-            catch (error) {
-                console.error("Falha na requisição:", error);
-                alert("Erro ao comunicar com o servidor.");
+            catch (erro) {
+                console.error('Falha na requisição:', erro);
+                alert('Erro ao comunicar com o servidor.');
             }
         }
-        // ==========================================
-        // LÓGICA DE LISTAGEM (GET)
-        // ==========================================
         async carregarFuncionarios() {
-            this.listaFuncionarios.innerHTML = '<p class="text-sm font-medium text-slate-500 uppercase col-span-full text-center py-10">Carregando dados do servidor...</p>';
+            this.listaFuncionarios.innerHTML = htmlMensagemNeutra('Carregando dados do servidor...');
             try {
-                const resposta = await fetch('/api/funcionario/');
-                const resultado = await resposta.json();
-                if (resultado.status === 'sucesso') {
-                    this.listaFuncionarios.innerHTML = '';
-                    if (resultado.dados.length === 0) {
-                        this.listaFuncionarios.innerHTML = '<p class="text-sm font-medium text-slate-500 uppercase col-span-full text-center py-10">Nenhum funcionário cadastrado.</p>';
-                        return;
-                    }
-                    resultado.dados.forEach((func) => {
-                        // Cores dinâmicas por cargo
-                        let corCargo = "text-slate-400";
-                        if (func.cargo === "Administrador")
-                            corCargo = "text-fuchsia-500";
-                        if (func.cargo === "Gestor")
-                            corCargo = "text-amber-500";
-                        if (func.cargo === "Analista de Triagem")
-                            corCargo = "text-emerald-400";
-                        if (func.cargo === "Funcionário")
-                            corCargo = "text-cyan-400";
-                        const card = document.createElement('div');
-                        card.className = "bg-[#1e293b] p-5 rounded-xl border border-[#334155] shadow-sm hover:border-cyan-500/50 transition-colors cursor-pointer group";
-                        card.innerHTML = `
-                            <div class="flex justify-between items-start mb-2">
-                                <span class="text-xs font-bold ${corCargo} uppercase tracking-wider">${func.cargo}</span>
-                                <span class="text-[10px] text-slate-500 font-mono">ID: ${func.id}</span>
-                            </div>
-                            <h3 class="text-base font-bold text-slate-200 group-hover:text-cyan-400 transition-colors">${this.escapar(func.nome)}</h3>
-                            <p class="text-xs text-slate-400 mt-1 font-mono">Login: ${func.login}</p>
-                            <p class="text-xs text-slate-500 mt-1 truncate">${this.escapar(func.email || 'sem e-mail cadastrado')}</p>
-                            <div class="mt-4 pt-3 border-t border-[#334155]/50 flex justify-end">
-                                <span class="text-[10px] text-slate-500 uppercase font-bold tracking-widest group-hover:text-cyan-500 transition-colors">Duplo clique para editar</span>
-                            </div>
-                        `;
-                        card.addEventListener('dblclick', () => {
-                            this.prepararEdicao(func.id, func.nome, func.cargo, func.login, func.email || '');
-                        });
-                        this.listaFuncionarios.appendChild(card);
-                    });
+                const resultado = await buscarJson('/api/funcionario/');
+                if (resultado.status !== 'sucesso') {
+                    this.listaFuncionarios.innerHTML = htmlMensagemErro(`Erro do Servidor: ${resultado.mensagem}`);
+                    return;
                 }
-                else {
-                    this.listaFuncionarios.innerHTML = `<p class="text-sm font-bold text-red-500 col-span-full text-center py-10">Erro do Servidor: ${resultado.mensagem}</p>`;
-                }
+                this.funcionarios = resultado.dados;
+                this.filtrarFuncionarios();
             }
-            catch (error) {
-                this.listaFuncionarios.innerHTML = '<p class="text-sm font-bold text-red-500 col-span-full text-center py-10">Erro crítico ao tentar conectar com o servidor.</p>';
+            catch (erro) {
+                this.listaFuncionarios.innerHTML = htmlMensagemErro('Erro crítico ao tentar conectar com o servidor.');
             }
         }
-        escapar(valor) {
-            const mapa = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
-            return String(valor ?? '').replace(/[&<>"']/g, (c) => mapa[c]);
+        filtrarFuncionarios() {
+            const termo = this.campoPesquisa.value.toLowerCase();
+            const cargo = this.filtroCargo.value;
+            const filtrados = this.funcionarios.filter((funcionario) => {
+                if (cargo !== 'todos' && funcionario.cargo !== cargo)
+                    return false;
+                return (funcionario.nome.toLowerCase().includes(termo) ||
+                    String(funcionario.login).includes(termo) ||
+                    (funcionario.email || '').toLowerCase().includes(termo));
+            });
+            this.renderizarCards(filtrados);
         }
-        // ==========================================
-        // SOLICITAÇÕES DE REDEFINIÇÃO DE SENHA (UC09)
-        // ==========================================
+        renderizarCards(funcionarios) {
+            this.listaFuncionarios.innerHTML = '';
+            if (funcionarios.length === 0) {
+                this.listaFuncionarios.innerHTML = htmlMensagemNeutra('Nenhum funcionário encontrado.');
+                return;
+            }
+            funcionarios.forEach((funcionario) => {
+                const corDoCargo = COR_POR_CARGO[funcionario.cargo] || COR_CARGO_PADRAO;
+                const card = document.createElement('div');
+                card.className = 'bg-[#1e293b] p-5 rounded-xl border border-[#334155] shadow-sm hover:border-cyan-500/50 transition-colors cursor-pointer group';
+                card.innerHTML = `
+                    <div class="flex justify-between items-start mb-2">
+                        <span class="text-xs font-bold ${corDoCargo} uppercase tracking-wider">${escapeHtml(funcionario.cargo)}</span>
+                        <span class="text-[10px] text-slate-500 font-mono">ID: ${funcionario.id}</span>
+                    </div>
+                    <h3 class="text-base font-bold text-slate-200 group-hover:text-cyan-400 transition-colors">${escapeHtml(funcionario.nome)}</h3>
+                    <p class="text-xs text-slate-400 mt-1 font-mono">Login: ${funcionario.login}</p>
+                    <p class="text-xs text-slate-500 mt-1 truncate">${escapeHtml(funcionario.email || 'sem e-mail cadastrado')}</p>
+                    <div class="mt-4 pt-3 border-t border-[#334155]/50 flex justify-end">
+                        <span class="text-[10px] text-slate-500 uppercase font-bold tracking-widest group-hover:text-cyan-500 transition-colors">Duplo clique para editar</span>
+                    </div>
+                `;
+                card.addEventListener('dblclick', () => {
+                    this.prepararEdicao(funcionario.id, funcionario.nome, funcionario.cargo, funcionario.login, funcionario.email || '');
+                });
+                this.listaFuncionarios.appendChild(card);
+            });
+        }
         async carregarSolicitacoes() {
             const painel = document.getElementById('painel-solicitacoes');
             const lista = document.getElementById('lista-solicitacoes');
             if (!painel || !lista)
                 return;
             try {
-                const resposta = await fetch('/api/solicitacoes-senha/');
-                const resultado = await resposta.json();
+                const resultado = await buscarJson('/api/solicitacoes-senha/');
                 lista.innerHTML = '';
                 if (resultado.status !== 'sucesso' || resultado.dados.length === 0) {
                     painel.classList.add('hidden');
                     return;
                 }
                 painel.classList.remove('hidden');
-                resultado.dados.forEach((pedido) => {
-                    const item = document.createElement('div');
-                    item.className = 'flex items-center justify-between gap-4 bg-[#0f172a] border border-[#334155] rounded-lg px-4 py-3';
-                    item.innerHTML = `
-                        <span class="text-xs text-slate-300"><span class="font-bold text-white">${this.escapar(pedido.nome)}</span> (matrícula ${this.escapar(pedido.login)}) pediu redefinição em ${this.escapar(pedido.data)}</span>
-                        <button type="button" class="px-3 py-1.5 rounded-md text-[10px] font-bold uppercase text-white bg-amber-600 hover:bg-amber-500">Redefinir senha</button>
-                    `;
-                    item.querySelector('button').addEventListener('click', () => {
-                        this.prepararEdicao(pedido.id_funcionario, pedido.nome, pedido.cargo, pedido.login, pedido.email || '');
-                        document.getElementById('senha').focus();
-                    });
-                    lista.appendChild(item);
-                });
+                resultado.dados.forEach((pedido) => lista.appendChild(this.criarItemDeSolicitacao(pedido)));
             }
-            catch (error) {
-                console.error('Falha ao carregar solicitações:', error);
+            catch (erro) {
+                console.error('Falha ao carregar solicitações:', erro);
             }
         }
+        criarItemDeSolicitacao(pedido) {
+            const item = document.createElement('div');
+            item.className = 'flex items-center justify-between gap-4 bg-[#0f172a] border border-[#334155] rounded-lg px-4 py-3';
+            item.innerHTML = `
+                <span class="text-xs text-slate-300"><span class="font-bold text-white">${escapeHtml(pedido.nome)}</span> (matrícula ${escapeHtml(pedido.login)}) pediu redefinição em ${escapeHtml(pedido.data)}</span>
+                <button type="button" class="px-3 py-1.5 rounded-md text-[10px] font-bold uppercase text-white bg-amber-600 hover:bg-amber-500">Redefinir senha</button>
+            `;
+            item.querySelector('button').addEventListener('click', () => {
+                this.prepararEdicao(pedido.id_funcionario, pedido.nome, pedido.cargo, pedido.login, pedido.email || '');
+                obterElemento('senha').focus();
+            });
+            return item;
+        }
         prepararEdicao(id, nome, cargo, login, email) {
-            const cargoUsuarioLogado = document.body.dataset.cargo || "";
-            if (cargoUsuarioLogado === "Funcionário" || cargoUsuarioLogado === "Analista de Triagem") {
-                alert("Você não tem permissão para alterar dados de funcionários.");
+            if (CARGOS_SOMENTE_LEITURA.includes(this.cargoLogado)) {
+                alert('Você não tem permissão para alterar dados de funcionários.');
                 return;
             }
             this.idAtual = id;
-            document.getElementById('nome').value = nome;
-            document.getElementById('cargo').value = cargo;
-            document.getElementById('login').value = login.toString();
-            document.getElementById('email').value = email;
-            document.getElementById('senha').value = ""; // Senha sempre vem limpa por segurança
-            this.btnSalvar.innerText = "Alterar Registro";
-            this.btnSalvar.classList.replace('bg-cyan-600', 'bg-amber-600');
-            this.btnSalvar.classList.replace('hover:bg-cyan-500', 'hover:bg-amber-500');
-            this.btnSalvar.classList.replace('shadow-[0_0_15px_rgba(6,182,212,0.3)]', 'shadow-[0_0_15px_rgba(245,158,11,0.3)]');
-            document.querySelectorAll('.input-dynamic').forEach(input => input.classList.add('has-value'));
-            this.form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            definirValorDoCampo('nome', nome);
+            definirValorDoCampo('cargo', cargo);
+            definirValorDoCampo('login', login.toString());
+            definirValorDoCampo('email', email);
+            definirValorDoCampo('senha', '');
+            aplicarModoEdicao(this.botaoSalvar, 'Alterar Registro');
+            marcarRotulosFlutuantes(true);
+            this.formulario.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
         limparFormulario() {
-            this.form.reset();
+            this.formulario.reset();
             this.idAtual = null;
-            this.btnSalvar.innerText = "Salvar Funcionário";
-            this.btnSalvar.classList.replace('bg-amber-600', 'bg-cyan-600');
-            this.btnSalvar.classList.replace('hover:bg-amber-500', 'hover:bg-cyan-500');
-            this.btnSalvar.classList.replace('shadow-[0_0_15px_rgba(245,158,11,0.3)]', 'shadow-[0_0_15px_rgba(6,182,212,0.3)]');
-            document.querySelectorAll('.input-dynamic').forEach(input => input.classList.remove('has-value'));
+            aplicarModoInsercao(this.botaoSalvar, 'Salvar Funcionário');
+            marcarRotulosFlutuantes(false);
         }
     }
-    window.addEventListener('DOMContentLoaded', () => {
-        new G_funcionarioUI();
-    });
+    window.addEventListener('DOMContentLoaded', () => new FuncionarioUI());
 })();

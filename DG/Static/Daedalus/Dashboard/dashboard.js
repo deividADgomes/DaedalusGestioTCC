@@ -1,5 +1,4 @@
 "use strict";
-/// <reference path="../baseUI.ts" />
 (() => {
     const COR = {
         texto: '#94a3b8', eixo: '#334155', ciano: '#22d3ee', rosa: '#fb7185', ambar: '#fbbf24',
@@ -23,9 +22,7 @@
         prestadora: 'Prestadora', tecnico: 'Técnico', cliente: 'Cliente',
         estado: 'Estado', equipamento: 'Modelo', analista: 'Analista'
     };
-    const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     const pct = (v) => `${Number(v).toFixed(1).replace('.', ',')}%`;
-    const el = (id) => document.getElementById(id);
     class DashboardUI extends BaseUI {
         constructor() {
             super();
@@ -40,7 +37,6 @@
             this.mostrarAba('geral');
             this.carregar();
         }
-        // ---------------- estado e filtros ----------------
         iso(d) {
             const m = String(d.getMonth() + 1).padStart(2, '0');
             const dia = String(d.getDate()).padStart(2, '0');
@@ -62,8 +58,8 @@
                 this.estado.inicio = recuar(parseInt(p) - 1);
                 this.estado.fim = this.iso(hoje);
             }
-            el('filtro-inicio').value = this.estado.inicio;
-            el('filtro-fim').value = this.estado.fim;
+            definirValorDoCampo('filtro-inicio', this.estado.inicio);
+            definirValorDoCampo('filtro-fim', this.estado.fim);
         }
         lerUrl() {
             const q = new URLSearchParams(window.location.search);
@@ -78,9 +74,9 @@
             FILTROS.forEach(f => this.estado[f] = q.get(f) || '');
             if (['7', '30', '90', 'ano', 'tudo'].includes(this.estado.preset))
                 this.aplicarPreset(this.estado.preset);
-            el('filtro-inicio').value = this.estado.inicio;
-            el('filtro-fim').value = this.estado.fim;
-            el('chk-comparar').checked = this.estado.comparar;
+            definirValorDoCampo('filtro-inicio', this.estado.inicio);
+            definirValorDoCampo('filtro-fim', this.estado.fim);
+            obterElemento('chk-comparar').checked = this.estado.comparar;
         }
         params(comPreset = false) {
             const q = new URLSearchParams();
@@ -114,28 +110,28 @@
                 this.destacarPreset();
                 this.carregar();
             }));
-            el('btn-aplicar').addEventListener('click', () => {
+            obterElemento('btn-aplicar').addEventListener('click', () => {
                 this.estado.preset = 'custom';
-                this.estado.inicio = el('filtro-inicio').value;
-                this.estado.fim = el('filtro-fim').value;
+                this.estado.inicio = valorDoCampo('filtro-inicio');
+                this.estado.fim = valorDoCampo('filtro-fim');
                 this.destacarPreset();
                 this.carregar();
             });
-            el('chk-comparar').addEventListener('change', () => {
-                this.estado.comparar = el('chk-comparar').checked;
+            obterElemento('chk-comparar').addEventListener('change', () => {
+                this.estado.comparar = obterElemento('chk-comparar').checked;
                 this.carregar();
             });
             document.querySelectorAll('.filtro-sel').forEach(s => s.addEventListener('change', () => {
                 const chave = s.id.replace('f-', '');
                 this.setFiltro(chave, s.value);
             }));
-            el('btn-limpar').addEventListener('click', () => {
+            obterElemento('btn-limpar').addEventListener('click', () => {
                 FILTROS.forEach(f => this.estado[f] = '');
                 this.carregar();
             });
             document.querySelectorAll('.tab-btn').forEach(b => b.addEventListener('click', () => this.mostrarAba(b.dataset.tab)));
-            el('sel-dimensao').addEventListener('change', () => this.desenharDimensao());
-            el('sel-ordem').addEventListener('change', () => this.desenharTabelaTecnicos());
+            obterElemento('sel-dimensao').addEventListener('change', () => this.desenharDimensao());
+            obterElemento('sel-ordem').addEventListener('change', () => this.desenharTabelaTecnicos());
             window.addEventListener('resize', () => Object.values(this.charts).forEach((c) => c.resize()));
         }
         mostrarAba(aba) {
@@ -151,11 +147,10 @@
             if (this.dados && !this.dados.vazio)
                 this.desenharAba(aba);
         }
-        // ---------------- dados ----------------
         async carregar() {
             const consulta = this.params().toString();
             window.history.replaceState(null, '', `?${this.params(true).toString()}`);
-            el('btn-exportar').href = `/api/dashboard/exportar/?${consulta}`;
+            obterElemento('btn-exportar').href = `/api/dashboard/exportar/?${consulta}`;
             try {
                 const resposta = await fetch(`/api/dashboard/?${consulta}`);
                 const res = await resposta.json();
@@ -167,10 +162,10 @@
                 this.preencherOpcoes(res.dados.opcoes);
                 this.desenharFiltrosAtivos();
                 const vazio = !!res.dados.vazio;
-                el('estado-vazio').classList.toggle('hidden', !vazio);
-                el('conteudo-dashboard').classList.toggle('hidden', vazio);
+                obterElemento('estado-vazio').classList.toggle('hidden', !vazio);
+                obterElemento('conteudo-dashboard').classList.toggle('hidden', vazio);
                 if (vazio) {
-                    el('periodo-info').innerText = '';
+                    obterElemento('periodo-info').innerText = '';
                     return;
                 }
                 this.desenharPeriodo();
@@ -183,8 +178,8 @@
         }
         preencherOpcoes(op) {
             const montar = (id, titulo, itens, chave) => {
-                const sel = el(id);
-                sel.innerHTML = `<option value="">${titulo}</option>` + itens.map(i => `<option value="${esc(i.id)}">${esc(i.nome)}</option>`).join('');
+                const sel = obterElemento(id);
+                sel.innerHTML = `<option value="">${titulo}</option>` + itens.map(i => `<option value="${escapeHtml(i.id)}">${escapeHtml(i.nome)}</option>`).join('');
                 sel.value = this.estado[chave] || '';
             };
             montar('f-prestadora', 'Todas as prestadoras', op.prestadoras, 'prestadora');
@@ -195,24 +190,24 @@
             montar('f-analista', 'Todos os analistas', op.analistas, 'analista');
         }
         desenharFiltrosAtivos() {
-            const caixa = el('filtros-ativos');
+            const caixa = obterElemento('filtros-ativos');
             caixa.innerHTML = '';
             let algum = false;
             FILTROS.forEach(f => {
                 if (!this.estado[f])
                     return;
                 algum = true;
-                const sel = el(`f-${f}`);
+                const sel = obterElemento(`f-${f}`);
                 const texto = sel.selectedOptions[0] ? sel.selectedOptions[0].text : this.estado[f];
                 const chip = document.createElement('button');
                 chip.className = 'flex items-center gap-1 bg-cyan-500/10 border border-cyan-500/40 text-cyan-300 text-[11px] px-2 py-1 rounded-full';
-                chip.innerHTML = `<span>${esc(ROTULO_FILTRO[f])}: <b>${esc(texto)}</b></span><span class="text-cyan-500">✕</span>`;
+                chip.innerHTML = `<span>${escapeHtml(ROTULO_FILTRO[f])}: <b>${escapeHtml(texto)}</b></span><span class="text-cyan-500">✕</span>`;
                 chip.addEventListener('click', () => this.setFiltro(f, ''));
                 caixa.appendChild(chip);
             });
             if (!algum)
                 caixa.innerHTML = '<span class="text-[11px] text-slate-600">nenhum (clique em um gráfico para filtrar)</span>';
-            el('btn-limpar').classList.toggle('hidden', !algum);
+            obterElemento('btn-limpar').classList.toggle('hidden', !algum);
         }
         desenharPeriodo() {
             const m = this.dados.meta;
@@ -221,11 +216,10 @@
             let txt = `${br(m.inicio)} a ${br(m.fim)} · agrupado por ${gran[m.granularidade]}`;
             if (m.anterior)
                 txt += ` · comparado a ${br(m.anterior.inicio)} a ${br(m.anterior.fim)}`;
-            el('periodo-info').innerText = txt;
+            obterElemento('periodo-info').innerText = txt;
         }
-        // ---------------- KPIs ----------------
         delta(id, kpi, tipo, menorMelhor) {
-            const alvo = el(id);
+            const alvo = obterElemento(id);
             if (kpi.delta === null || kpi.delta === undefined) {
                 alvo.innerHTML = '';
                 return;
@@ -247,21 +241,21 @@
         }
         desenharKpis() {
             const k = this.dados.kpis;
-            el('k-triagens').innerText = String(k.triagens.valor);
+            obterElemento('k-triagens').innerText = String(k.triagens.valor);
             this.delta('k-triagens-delta', k.triagens, 'pct', null);
-            el('k-triagens-sub').innerText = `${k.defeitos} com defeito · ${k.nff} NFF`;
-            el('k-nff').innerText = pct(k.taxa_nff.valor);
+            obterElemento('k-triagens-sub').innerText = `${k.defeitos} com defeito · ${k.nff} NFF`;
+            obterElemento('k-nff').innerText = pct(k.taxa_nff.valor);
             this.delta('k-nff-delta', k.taxa_nff, 'pp', true);
-            el('k-nff-marcador').style.left = `${Math.min(99, Math.max(0, k.taxa_nff.valor))}%`;
-            el('k-div').innerText = k.comparaveis ? pct(k.divergencia.valor) : '--';
+            obterElemento('k-nff-marcador').style.left = `${Math.min(99, Math.max(0, k.taxa_nff.valor))}%`;
+            obterElemento('k-div').innerText = k.comparaveis ? pct(k.divergencia.valor) : '--';
             this.delta('k-div-delta', k.divergencia, 'pp', true);
-            el('k-div-sub').innerText = k.comparaveis ? `${k.divergentes} de ${k.comparaveis} comparáveis` : 'sem diagnósticos comparáveis';
-            el('k-reinc').innerText = String(k.reincidencia.series);
-            el('k-reinc-sub').innerText = k.reincidencia.series
+            obterElemento('k-div-sub').innerText = k.comparaveis ? `${k.divergentes} de ${k.comparaveis} comparáveis` : 'sem diagnósticos comparáveis';
+            obterElemento('k-reinc').innerText = String(k.reincidencia.series);
+            obterElemento('k-reinc-sub').innerText = k.reincidencia.series
                 ? `${k.reincidencia.triagens} triagens (${pct(k.reincidencia.pct)} do total)` : 'nenhuma série repetida';
             const a = k.tecnicos_alerta;
-            el('k-alerta').innerText = `${a.criticos + a.atencao}`;
-            el('k-alerta-sub').innerText = `${a.criticos} crítico(s), ${a.atencao} atenção · ${a.avaliados} avaliados`;
+            obterElemento('k-alerta').innerText = `${a.criticos + a.atencao}`;
+            obterElemento('k-alerta-sub').innerText = `${a.criticos} crítico(s), ${a.atencao} atenção · ${a.avaliados} avaliados`;
             this.desenharSpark('spark-triagens', this.dados.serie.pontos.map((p) => p.total), COR.ciano);
             this.desenharSpark('spark-nff', this.dados.serie.pontos.map((p) => p.taxa_nff), COR.rosa);
         }
@@ -275,9 +269,8 @@
                         lineStyle: { color: cor, width: 2 }, areaStyle: { color: cor, opacity: 0.15 } }]
             }, true);
         }
-        // ---------------- gráficos ----------------
         grafico(id) {
-            const dom = el(id);
+            const dom = obterElemento(id);
             let c = this.charts[id];
             if (!c || c.getDom() !== dom) {
                 if (c)
@@ -315,7 +308,7 @@
             };
         }
         desenharInsights() {
-            const caixa = el('lista-insights');
+            const caixa = obterElemento('lista-insights');
             const itens = this.dados.insights;
             if (!itens.length) {
                 caixa.innerHTML = '<p class="text-xs text-slate-500">Poucos dados para gerar insights neste recorte.</p>';
@@ -325,8 +318,8 @@
                 const n = NIVEL[i.nivel];
                 const botao = i.filtro ? `<button data-idx="${idx}" class="btn-insight mt-1 text-[10px] font-bold uppercase text-cyan-400 hover:text-cyan-300">Filtrar por isso →</button>` : '';
                 return `<div class="border-l-4 ${n.borda} bg-[#0f172a] rounded-r-lg px-3 py-2">
-                    <p class="text-xs font-bold text-slate-100"><span class="${n.cor} mr-1">${n.icone}</span>${esc(i.titulo)}</p>
-                    <p class="text-[11px] text-slate-400 mt-0.5">${esc(i.texto)}</p>${botao}</div>`;
+                    <p class="text-xs font-bold text-slate-100"><span class="${n.cor} mr-1">${n.icone}</span>${escapeHtml(i.titulo)}</p>
+                    <p class="text-[11px] text-slate-400 mt-0.5">${escapeHtml(i.texto)}</p>${botao}</div>`;
             }).join('');
             caixa.querySelectorAll('.btn-insight').forEach(b => b.addEventListener('click', () => {
                 const filtro = itens[parseInt(b.dataset.idx)].filtro;
@@ -362,7 +355,7 @@
             }, true);
         }
         desenharDimensao() {
-            const chave = el('sel-dimensao').value;
+            const chave = valorDoCampo('sel-dimensao');
             const itens = this.dados.dimensoes[chave] || [];
             const c = this.grafico('chart-dimensao');
             c.off('click');
@@ -373,7 +366,7 @@
                 tooltip: { ...this.estiloBase().tooltip, trigger: 'axis', axisPointer: { type: 'shadow' },
                     formatter: (ps) => {
                         const d = itens[ps[0].dataIndex];
-                        return `<b>${esc(d.nome)}</b><br/>${d.total} triagens<br/>NFF: <b>${pct(d.taxa_nff)}</b> (IC 95%: ${pct(d.ic_inf)} a ${pct(d.ic_sup)})<br/>${STATUS[d.status].rotulo}`;
+                        return `<b>${escapeHtml(d.nome)}</b><br/>${d.total} triagens<br/>NFF: <b>${pct(d.taxa_nff)}</b> (IC 95%: ${pct(d.ic_inf)} a ${pct(d.ic_sup)})<br/>${STATUS[d.status].rotulo}`;
                     } },
                 xAxis: { type: 'value', minInterval: 1, splitLine: { lineStyle: { color: COR.eixo, opacity: 0.4 } }, axisLabel: { color: COR.texto } },
                 yAxis: { type: 'category', inverse: true, data: itens.map(i => i.nome), axisLabel: { color: '#cbd5e1', width: 150, overflow: 'truncate' }, axisLine: { lineStyle: { color: COR.eixo } } },
@@ -418,7 +411,7 @@
                         if (pt.seriesType !== 'scatter')
                             return '';
                         const v = pt.data.value;
-                        return `<b>${esc(v[2])}</b><br/>${v[0]} triagens<br/>NFF: <b>${pct(v[1])}</b> (IC 95%: ${pct(v[5])} a ${pct(v[6])})<br/>${STATUS[v[3]].rotulo}${v[7] !== null ? ` (z = ${v[7]})` : ''}`;
+                        return `<b>${escapeHtml(v[2])}</b><br/>${v[0]} triagens<br/>NFF: <b>${pct(v[1])}</b> (IC 95%: ${pct(v[5])} a ${pct(v[6])})<br/>${STATUS[v[3]].rotulo}${v[7] !== null ? ` (z = ${v[7]})` : ''}`;
                     } },
                 xAxis: { type: 'value', name: 'Triagens do técnico (n)', nameLocation: 'middle', nameGap: 26, min: 0, max: Math.ceil(nmax),
                     splitLine: { show: false }, axisLabel: { color: COR.texto }, axisLine: { lineStyle: { color: COR.eixo } } },
@@ -442,7 +435,7 @@
             });
         }
         desenharTabelaTecnicos() {
-            const ordem = el('sel-ordem').value;
+            const ordem = valorDoCampo('sel-ordem');
             const sev = { critico: 0, atencao: 1, normal: 2, destaque: 3, insuficiente: 4 };
             const lista = [...this.dados.tecnicos];
             if (ordem === 'ic')
@@ -453,11 +446,11 @@
                 lista.sort((a, b) => b.total - a.total);
             if (ordem === 'melhor')
                 lista.sort((a, b) => (b.status === 'destaque' ? 1 : 0) - (a.status === 'destaque' ? 1 : 0) || a.taxa_nff - b.taxa_nff);
-            const corpo = el('tabela-tecnicos');
+            const corpo = obterElemento('tabela-tecnicos');
             corpo.innerHTML = lista.map(t => {
                 const s = STATUS[t.status];
                 return `<tr class="linha-tec cursor-pointer hover:bg-slate-800/50" data-id="${t.id}">
-                    <td class="py-2 pr-3"><div class="font-bold text-slate-200">${esc(t.nome)}</div><div class="text-[10px] text-slate-500">${esc(t.prestadora)}</div></td>
+                    <td class="py-2 pr-3"><div class="font-bold text-slate-200">${escapeHtml(t.nome)}</div><div class="text-[10px] text-slate-500">${escapeHtml(t.prestadora)}</div></td>
                     <td class="py-2 pr-3 text-right text-slate-300">${t.total}</td>
                     <td class="py-2 pr-3"><div class="flex items-center gap-2">
                         <div class="relative w-28 h-2 bg-slate-700/60 rounded" title="IC 95%: ${pct(t.ic_inf)} a ${pct(t.ic_sup)}">
@@ -471,18 +464,18 @@
         }
         desenharPecas() {
             const p = this.dados.pecas;
-            el('pecas-nota').innerText = p.itens.length
+            obterElemento('pecas-nota').innerText = p.itens.length
                 ? `${p.com_peca} triagens com peça do catálogo informada (${p.sem_peca} sem peça ficaram de fora). NFF = trocada, mas a bancada achou funcional.`
                 : 'Nenhuma triagem deste recorte tem peça do catálogo informada. Selecione a peça trocada na triagem.';
-            el('tabela-pecas').innerHTML = p.itens.map((i) => `<tr>
-                <td class="py-2 pr-3"><div class="font-mono text-cyan-400">${esc(i.part_number)}</div><div class="text-[10px] text-slate-500">${esc(i.descricao)}</div></td>
+            obterElemento('tabela-pecas').innerHTML = p.itens.map((i) => `<tr>
+                <td class="py-2 pr-3"><div class="font-mono text-cyan-400">${escapeHtml(i.part_number)}</div><div class="text-[10px] text-slate-500">${escapeHtml(i.descricao)}</div></td>
                 <td class="py-2 text-right text-slate-300">${i.trocas}</td>
                 <td class="py-2 text-right text-slate-300">${i.nff}</td>
                 <td class="py-2 pl-3"><span class="font-bold" style="color:${this.corNff(i.taxa_nff)}">${pct(i.taxa_nff)}</span></td></tr>`).join('');
         }
         desenharPareto() {
             const p = this.dados.pareto_defeitos;
-            el('pareto-nota').innerText = p.total
+            obterElemento('pareto-nota').innerText = p.total
                 ? `${p.total} defeitos confirmados com descrição${p.sem_registro ? ` (${p.sem_registro} sem descrição ficaram de fora)` : ''}. A linha mostra o acumulado.`
                 : 'Sem defeitos confirmados com descrição neste recorte.';
             const c = this.grafico('chart-pareto');
@@ -504,7 +497,6 @@
             }, true);
         }
         corNff(taxa) {
-            // verde (0%) -> âmbar (35%) -> vermelho (70%+)
             const t = Math.min(1, taxa / 70);
             const mix = (a, b, k) => a.map((v, i) => Math.round(v + (b[i] - v) * k));
             const rgb = t < 0.5 ? mix([16, 185, 129], [245, 158, 11], t * 2) : mix([245, 158, 11], [225, 29, 72], (t - 0.5) * 2);
@@ -516,7 +508,7 @@
             c.off('click');
             c.setOption({
                 ...this.estiloBase(),
-                tooltip: { ...this.estiloBase().tooltip, formatter: (p) => `<b>${esc(p.data.name)}</b><br/>PN ${esc(p.data.pn)}<br/>${p.data.value} triagens · NFF <b>${pct(p.data.taxa)}</b> (${p.data.nff})` },
+                tooltip: { ...this.estiloBase().tooltip, formatter: (p) => `<b>${escapeHtml(p.data.name)}</b><br/>PN ${escapeHtml(p.data.pn)}<br/>${p.data.value} triagens · NFF <b>${pct(p.data.taxa)}</b> (${p.data.nff})` },
                 series: [{ type: 'treemap', roam: false, nodeClick: false, breadcrumb: { show: false }, width: '100%', height: '100%',
                         label: { show: true, color: '#fff', fontSize: 11, formatter: (p) => `${p.data.name}\n${pct(p.data.taxa)} NFF` },
                         itemStyle: { borderColor: '#0f172a', borderWidth: 2, gapWidth: 2 },
@@ -528,34 +520,34 @@
         }
         desenharTransicoes() {
             const t = this.dados.transicoes;
-            const caixa = el('lista-transicoes');
+            const caixa = obterElemento('lista-transicoes');
             if (!t.itens.length) {
                 caixa.innerHTML = `<p class="text-xs text-slate-500">${t.comparaveis ? 'Nenhuma divergência entre campo e bancada neste recorte.' : 'Sem triagens com diagnóstico do técnico e defeito constatado preenchidos.'}</p>`;
                 return;
             }
             caixa.innerHTML = `<p class="text-[11px] text-slate-400 mb-1">${t.divergentes} de ${t.comparaveis} diagnósticos comparáveis divergem (${pct(t.pct_div)}).</p>` +
                 t.itens.map((i) => `<div>
-                    <div class="flex justify-between text-xs"><span class="text-slate-300"><span class="text-amber-300">${esc(i.diagnostico)}</span> → <span class="text-cyan-300">${esc(i.constatado)}</span></span><span class="text-slate-400 font-bold">${i.qtd}</span></div>
+                    <div class="flex justify-between text-xs"><span class="text-slate-300"><span class="text-amber-300">${escapeHtml(i.diagnostico)}</span> → <span class="text-cyan-300">${escapeHtml(i.constatado)}</span></span><span class="text-slate-400 font-bold">${i.qtd}</span></div>
                     <div class="h-1.5 bg-slate-700/60 rounded mt-1"><div class="h-1.5 rounded bg-amber-500/70" style="width:${i.pct}%"></div></div></div>`).join('');
         }
         desenharReincidencia() {
             const itens = this.dados.reincidencia.itens;
-            el('tabela-reincidencia').innerHTML = itens.length ? itens.map(i => `<tr>
-                <td class="py-2 font-mono text-slate-200">${esc(i.sn)}</td><td class="py-2 text-slate-300">${esc(i.modelo)}</td>
-                <td class="py-2 text-right text-indigo-300 font-bold">${i.vezes}</td><td class="py-2 text-right text-slate-400">${esc(i.ultima)}</td></tr>`).join('')
+            obterElemento('tabela-reincidencia').innerHTML = itens.length ? itens.map(i => `<tr>
+                <td class="py-2 font-mono text-slate-200">${escapeHtml(i.sn)}</td><td class="py-2 text-slate-300">${escapeHtml(i.modelo)}</td>
+                <td class="py-2 text-right text-indigo-300 font-bold">${i.vezes}</td><td class="py-2 text-right text-slate-400">${escapeHtml(i.ultima)}</td></tr>`).join('')
                 : '<tr><td colspan="4" class="py-3 text-slate-500">Nenhuma série repetida neste recorte.</td></tr>';
         }
         desenharRecentes() {
             const itens = this.dados.recentes;
-            el('tabela-recentes').innerHTML = itens.map(t => {
+            obterElemento('tabela-recentes').innerHTML = itens.map(t => {
                 const resultado = t.status === 1
                     ? '<span class="border bg-rose-500/15 text-rose-300 border-rose-500/40 text-[10px] font-bold px-2 py-0.5 rounded-full">NFF</span>'
                     : '<span class="border bg-cyan-500/15 text-cyan-300 border-cyan-500/40 text-[10px] font-bold px-2 py-0.5 rounded-full">Defeito</span>';
                 const diverg = t.divergente ? ' <span title="Diagnóstico diverge da bancada" class="text-amber-300 font-bold">≠</span>' : '';
                 return `<tr class="hover:bg-slate-800/50">
-                    <td class="py-2 pr-3 text-slate-400">${esc(t.data)}</td><td class="py-2 pr-3 text-slate-200">${esc(t.ticket)}</td>
-                    <td class="py-2 pr-3 font-mono text-slate-300">${esc(t.sn)}</td><td class="py-2 pr-3 text-slate-300">${esc(t.tecnico)}</td>
-                    <td class="py-2 pr-3 text-slate-300">${esc(t.cliente)}</td><td class="py-2 pr-3 text-slate-300">${esc(t.modelo)}</td>
+                    <td class="py-2 pr-3 text-slate-400">${escapeHtml(t.data)}</td><td class="py-2 pr-3 text-slate-200">${escapeHtml(t.ticket)}</td>
+                    <td class="py-2 pr-3 font-mono text-slate-300">${escapeHtml(t.sn)}</td><td class="py-2 pr-3 text-slate-300">${escapeHtml(t.tecnico)}</td>
+                    <td class="py-2 pr-3 text-slate-300">${escapeHtml(t.cliente)}</td><td class="py-2 pr-3 text-slate-300">${escapeHtml(t.modelo)}</td>
                     <td class="py-2 pr-3">${resultado}${diverg}</td>
                     <td class="py-2"><a class="text-cyan-400 hover:text-cyan-300 font-bold" href="/visualizar/?id=${t.id}">abrir</a></td></tr>`;
             }).join('');

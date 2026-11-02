@@ -1,9 +1,6 @@
 {% extends 'Daedalus/base.html' %}
 {% load static %}
 {% block title %}Daedalus - Detalhes do Laudo{% endblock %}
-{% block extra_css %}
-<link rel="stylesheet" href="{% static 'Daedalus/TelaPrincipal/style.css' %}">
-{% endblock %}
 
 {% block header %}
 <div class="flex items-center justify-between w-full pr-4">
@@ -27,16 +24,16 @@
 {% endblock %}
 
 {% block content %}
-<main class="flex-1 overflow-y-auto p-8 bg-[#0f172a]">
+<div class="flex-1 overflow-y-auto p-8 bg-[#0f172a]">
     <div id="container-visualizacao" class="max-w-6xl mx-auto space-y-6 opacity-0 transition-opacity duration-500 pb-10">
-        
+
         <div class="grid grid-cols-1 md:grid-cols-12 gap-4 bg-[#1e293b] p-6 rounded-xl border border-[#334155]">
             <h2 class="col-span-full text-cyan-400 text-xs font-bold uppercase mb-2">Dados da Ordem</h2>
             <div class="input-group md:col-span-3"><input type="text" id="v-ticket" class="input-dynamic has-value" disabled><label class="label-dynamic">Nº Ticket</label></div>
             <div class="input-group md:col-span-3"><input type="text" id="v-nf" class="input-dynamic has-value" disabled><label class="label-dynamic">Nota Fiscal</label></div>
             <div class="input-group md:col-span-4"><input type="text" id="v-cidade" class="input-dynamic has-value" disabled><label class="label-dynamic">Cidade</label></div>
             <div class="input-group md:col-span-2"><input type="text" id="v-estado" class="input-dynamic has-value" disabled><label class="label-dynamic">Estado</label></div>
-            
+
             <div class="input-group md:col-span-4"><input type="text" id="v-cliente" class="input-dynamic has-value" disabled><label class="label-dynamic">Cliente</label></div>
             <div class="input-group md:col-span-4"><input type="text" id="v-tecnico" class="input-dynamic has-value" disabled><label class="label-dynamic">Técnico Resp.</label></div>
             <div class="input-group md:col-span-4"><input type="text" id="v-analista" class="input-dynamic has-value" disabled><label class="label-dynamic">Analista Resp.</label></div>
@@ -53,10 +50,10 @@
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 bg-[#1e293b] p-6 rounded-xl border border-[#334155]">
             <h2 class="col-span-full text-emerald-400 text-xs font-bold uppercase mb-2">Relatório da Análise Técnica</h2>
-            
+
             <div class="input-group md:col-span-2"><textarea id="v-defeito_usuario" class="input-dynamic has-value min-h-[80px]" disabled></textarea><label class="label-dynamic">Defeito Alegado pelo Usuário</label></div>
             <div class="input-group md:col-span-2"><textarea id="v-defeito_tecnico" class="input-dynamic has-value min-h-[80px]" disabled></textarea><label class="label-dynamic">Constatação do Técnico</label></div>
-            
+
             <div class="input-group md:col-span-1"><input type="text" id="v-defeito_constatado" class="input-dynamic has-value" disabled><label class="label-dynamic">Defeito Constatado (Resumo)</label></div>
             <div class="input-group md:col-span-1"><input type="text" id="v-testes" class="input-dynamic has-value" disabled><label class="label-dynamic">Testes Realizados</label></div>
 
@@ -79,7 +76,7 @@
             <p id="galeria-vazia" class="text-xs text-slate-500 hidden">Nenhuma foto anexada a esta triagem.</p>
         </section>
     </div>
-</main>
+</div>
 {% endblock %}
 
 {% block extra_js %}

@@ -1,8 +1,39 @@
 /// <reference path="../baseUI.ts" />
+
 (() => {
+    const STATUS_FUNCIONAL = 1;
+    const TEXTO_NAO_INFORMADO = 'Não informado';
+
+    interface FotoApi {
+        id: number;
+        url: string;
+        legenda: string;
+    }
+
+    interface TriagemDetalhe {
+        n_ticket: number;
+        nf: number;
+        cidade: string;
+        estado: string;
+        sn: string;
+        status_peca: number;
+        troca: string;
+        peca_trocada: string | null;
+        nome_cliente: string;
+        nome_equipamento: string;
+        nome_tecnico: string;
+        nome_analista: string;
+        defeito_usuario: string;
+        defeito_tecnico: string;
+        defeito_constatado: string;
+        testes: string;
+        analise: string;
+        conclusao: string;
+        fotos: FotoApi[];
+    }
+
     class VisualizarUI extends BaseUI {
         private idAtual: string | null = null;
-        private totalFotos = 0;
 
         constructor() {
             super();
@@ -11,144 +42,148 @@
         }
 
         private iniciarEventos(): void {
-            document.getElementById('input-fotos')?.addEventListener('change', (e) => this.enviarFotos(e));
-            const btnExportar = document.getElementById('btn-exportar-word');
-            if (btnExportar) {
-                btnExportar.addEventListener('click', () => {
-                    if (this.idAtual) {
-                        // Chama a rota que cria e descarrega o ficheiro DOCX
-                        window.location.href = `/api/triagem/exportar-docx/?id=${this.idAtual}`;
-                    } else {
-                        alert("Erro: ID da triagem não encontrado para exportação.");
-                    }
-                });
-            }
-        }
-
-        // ==========================================
-        // FOTOS
-        // ==========================================
-        private desenharGaleria(fotos: any[]): void {
-            this.totalFotos = fotos.length;
-            const galeria = document.getElementById('galeria-fotos') as HTMLElement;
-            galeria.innerHTML = '';
-            document.getElementById('galeria-vazia')?.classList.toggle('hidden', fotos.length > 0);
-            fotos.forEach(f => {
-                const item = document.createElement('div');
-                item.className = 'relative aspect-square rounded-lg overflow-hidden border border-[#334155] bg-slate-900';
-                const link = document.createElement('a');
-                link.href = f.url;
-                link.target = '_blank';
-                link.rel = 'noopener';
-                const img = document.createElement('img');
-                img.src = f.url;
-                img.alt = f.legenda || 'Foto da triagem';
-                img.loading = 'lazy';
-                img.className = 'w-full h-full object-cover hover:opacity-90 transition-opacity';
-                link.appendChild(img);
-                const rem = document.createElement('button');
-                rem.type = 'button';
-                rem.textContent = '✕';
-                rem.title = 'Excluir foto';
-                rem.className = 'absolute top-1 right-1 w-6 h-6 rounded-full bg-black/70 text-rose-300 text-xs hover:bg-rose-600 hover:text-white';
-                rem.addEventListener('click', () => this.excluirFoto(f.id));
-                item.append(link, rem);
-                galeria.appendChild(item);
+            document.getElementById('input-fotos')?.addEventListener('change', (evento) => this.enviarFotos(evento));
+            document.getElementById('btn-exportar-word')?.addEventListener('click', () => {
+                if (!this.idAtual) {
+                    alert('Erro: ID da triagem não encontrado para exportação.');
+                    return;
+                }
+                window.location.href = `/api/triagem/exportar-docx/?id=${this.idAtual}`;
             });
         }
 
-        private async recarregarFotos(): Promise<void> {
-            const res = await fetch(`/api/triagem/fotos/?id_triagem=${this.idAtual}`).then(r => r.json());
-            if (res.status === 'sucesso') { this.desenharGaleria(res.dados); }
+        private criarMiniatura(foto: FotoApi): HTMLElement {
+            const item = document.createElement('div');
+            item.className = 'relative aspect-square rounded-lg overflow-hidden border border-[#334155] bg-slate-900';
+
+            const link = document.createElement('a');
+            link.href = foto.url;
+            link.target = '_blank';
+            link.rel = 'noopener';
+
+            const imagem = document.createElement('img');
+            imagem.src = foto.url;
+            imagem.alt = foto.legenda || 'Foto da triagem';
+            imagem.loading = 'lazy';
+            imagem.className = 'w-full h-full object-cover hover:opacity-90 transition-opacity';
+            link.appendChild(imagem);
+
+            const excluir = document.createElement('button');
+            excluir.type = 'button';
+            excluir.textContent = '✕';
+            excluir.title = 'Excluir foto';
+            excluir.className = 'absolute top-1 right-1 w-6 h-6 rounded-full bg-black/70 text-rose-300 text-xs hover:bg-rose-600 hover:text-white';
+            excluir.addEventListener('click', () => this.excluirFoto(foto.id));
+
+            item.append(link, excluir);
+            return item;
         }
 
-        private async enviarFotos(e: Event): Promise<void> {
-            const input = e.target as HTMLInputElement;
-            const arquivos = Array.from(input.files || []);
-            input.value = '';
+        private desenharGaleria(fotos: FotoApi[]): void {
+            const galeria = obterElemento('galeria-fotos');
+            galeria.innerHTML = '';
+            document.getElementById('galeria-vazia')?.classList.toggle('hidden', fotos.length > 0);
+            fotos.forEach((foto) => galeria.appendChild(this.criarMiniatura(foto)));
+        }
+
+        private async recarregarFotos(): Promise<void> {
+            const resultado = await buscarJson(`/api/triagem/fotos/?id_triagem=${this.idAtual}`);
+            if (resultado.status === 'sucesso') this.desenharGaleria(resultado.dados);
+        }
+
+        private async enviarFotos(evento: Event): Promise<void> {
+            const campo = evento.target as HTMLInputElement;
+            const arquivos = Array.from(campo.files || []);
+            campo.value = '';
+
             const falhas: string[] = [];
-            for (const arq of arquivos) {
-                const fd = new FormData();
-                fd.append('id_triagem', String(this.idAtual));
-                fd.append('arquivo', arq);
+            for (const arquivo of arquivos) {
+                const corpo = new FormData();
+                corpo.append('id_triagem', String(this.idAtual));
+                corpo.append('arquivo', arquivo);
                 try {
-                    const res = await fetch('/api/triagem/fotos/', { method: 'POST', body: fd }).then(r => r.json());
-                    if (res.status !== 'sucesso') { falhas.push(`${arq.name}: ${res.mensagem}`); }
-                } catch (err) {
-                    falhas.push(`${arq.name}: falha de comunicação`);
+                    const resultado = await requisitarJson('/api/triagem/fotos/', { method: 'POST', body: corpo });
+                    if (resultado.status !== 'sucesso') falhas.push(`${arquivo.name}: ${resultado.mensagem}`);
+                } catch (erro) {
+                    falhas.push(`${arquivo.name}: falha de comunicação`);
                 }
             }
+
             await this.recarregarFotos();
-            if (falhas.length) { alert('Algumas fotos não foram enviadas:\n- ' + falhas.join('\n- ')); }
+            if (falhas.length) alert('Algumas fotos não foram enviadas:\n- ' + falhas.join('\n- '));
         }
 
         private async excluirFoto(id: number): Promise<void> {
-            if (!confirm('Excluir esta foto?')) { return; }
+            if (!confirm('Excluir esta foto?')) return;
+
             try {
-                const res = await fetch(`/api/triagem/fotos/?id=${id}`, { method: 'DELETE' }).then(r => r.json());
-                if (res.status !== 'sucesso') { alert('Erro: ' + res.mensagem); }
-            } catch (err) {
+                const resultado = await requisitarJson(`/api/triagem/fotos/?id=${id}`, { method: 'DELETE' });
+                if (resultado.status !== 'sucesso') alert('Erro: ' + resultado.mensagem);
+            } catch (erro) {
                 alert('Erro ao comunicar com o servidor.');
             }
             await this.recarregarFotos();
         }
 
+        private preencherDetalhes(triagem: TriagemDetalhe): void {
+            obterElemento('label-ticket').innerText =
+                `Ticket #${triagem.n_ticket || ''} - Analisado por ${triagem.nome_analista || ''}`;
+
+            const camposDaOrdem: Record<string, string | number | null> = {
+                'v-ticket': triagem.n_ticket,
+                'v-nf': triagem.nf,
+                'v-cidade': triagem.cidade,
+                'v-estado': triagem.estado,
+                'v-cliente': triagem.nome_cliente,
+                'v-tecnico': triagem.nome_tecnico,
+                'v-analista': triagem.nome_analista,
+                'v-equipamento': triagem.nome_equipamento,
+                'v-sn': triagem.sn,
+                'v-troca': triagem.troca,
+                'v-peca': triagem.peca_trocada,
+            };
+            Object.entries(camposDaOrdem).forEach(([id, valor]) => definirValorDoCampo(id, String(valor || '')));
+
+            const camposDoLaudo: Record<string, string> = {
+                'v-defeito_usuario': triagem.defeito_usuario,
+                'v-defeito_tecnico': triagem.defeito_tecnico,
+                'v-defeito_constatado': triagem.defeito_constatado,
+                'v-testes': triagem.testes,
+                'v-analise': triagem.analise,
+                'v-conclusao': triagem.conclusao,
+            };
+            Object.entries(camposDoLaudo).forEach(([id, valor]) => definirValorDoCampo(id, valor || TEXTO_NAO_INFORMADO));
+
+            this.desenharGaleria(triagem.fotos || []);
+            this.exibirStatus(triagem.status_peca);
+        }
+
+        private exibirStatus(status: number): void {
+            const funcional = status === STATUS_FUNCIONAL;
+            const campo = obterElemento<HTMLInputElement>('v-status');
+            campo.value = funcional ? 'FUNCIONAL' : 'NÃO FUNCIONAL / COM DEFEITO';
+            campo.classList.add(funcional ? 'text-emerald-400' : 'text-rose-400');
+        }
+
         private async carregarDados(): Promise<void> {
-            const urlParams = new URLSearchParams(window.location.search);
-            this.idAtual = urlParams.get('id');
+            this.idAtual = new URLSearchParams(window.location.search).get('id');
 
             if (!this.idAtual) {
-                alert("ID da triagem não fornecido.");
+                alert('ID da triagem não fornecido.');
                 window.location.href = '/pesquisa/';
                 return;
             }
 
             try {
-                const resposta = await fetch(`/api/triagem/?id=${this.idAtual}`);
-                const res = await resposta.json();
-
-                if (res.status === 'sucesso') {
-                    const d = res.dado;
-
-                    // CABEÇALHO
-                    (document.getElementById('label-ticket') as HTMLElement).innerText = `Ticket #${d.n_ticket || ''} - Analisado por ${d.nome_analista || ''}`;
-                    
-                    // SESSÃO 1: DADOS DA ORDEM
-                    (document.getElementById('v-ticket') as HTMLInputElement).value = d.n_ticket || "";
-                    (document.getElementById('v-nf') as HTMLInputElement).value = d.nf || "";
-                    (document.getElementById('v-cidade') as HTMLInputElement).value = d.cidade || "";
-                    (document.getElementById('v-estado') as HTMLInputElement).value = d.estado || "";
-                    (document.getElementById('v-cliente') as HTMLInputElement).value = d.nome_cliente || "";
-                    (document.getElementById('v-tecnico') as HTMLInputElement).value = d.nome_tecnico || "";
-                    (document.getElementById('v-analista') as HTMLInputElement).value = d.nome_analista || "";
-
-                    // SESSÃO 2: EQUIPAMENTO/PEÇA
-                    (document.getElementById('v-equipamento') as HTMLInputElement).value = d.nome_equipamento || "";
-                    (document.getElementById('v-sn') as HTMLInputElement).value = d.sn || "";
-                    (document.getElementById('v-troca') as HTMLInputElement).value = d.troca || "";
-                    (document.getElementById('v-peca') as HTMLInputElement).value = d.peca_trocada || "";
-                    this.desenharGaleria(d.fotos || []);
-                    
-                    // SESSÃO 3: LAUDO
-                    (document.getElementById('v-defeito_usuario') as HTMLTextAreaElement).value = d.defeito_usuario || "Não informado";
-                    (document.getElementById('v-defeito_tecnico') as HTMLTextAreaElement).value = d.defeito_tecnico || "Não informado";
-                    (document.getElementById('v-defeito_constatado') as HTMLInputElement).value = d.defeito_constatado || "Não informado";
-                    (document.getElementById('v-testes') as HTMLInputElement).value = d.testes || "Não informado";
-                    (document.getElementById('v-analise') as HTMLTextAreaElement).value = d.analise || "Não informado";
-                    (document.getElementById('v-conclusao') as HTMLTextAreaElement).value = d.conclusao || "Não informado";
-
-                    // TRATAMENTO DO STATUS (VERDE/VERMELHO)
-                    const statusElem = document.getElementById('v-status') as HTMLInputElement;
-                    statusElem.value = d.status_peca === 1 ? "FUNCIONAL" : "NÃO FUNCIONAL / COM DEFEITO";
-                    statusElem.classList.add(d.status_peca === 1 ? "text-emerald-400" : "text-rose-400");
-
-                    // Mostrar a tela suavemente
-                    document.getElementById('container-visualizacao')?.classList.remove('opacity-0');
-                } else {
-                    alert("Erro do Servidor: " + res.mensagem);
+                const resultado = await buscarJson(`/api/triagem/?id=${this.idAtual}`);
+                if (resultado.status !== 'sucesso') {
+                    alert('Erro do Servidor: ' + resultado.mensagem);
+                    return;
                 }
-            } catch (e) {
-                alert("Erro grave de comunicação com o servidor.");
+                this.preencherDetalhes(resultado.dado);
+                document.getElementById('container-visualizacao')?.classList.remove('opacity-0');
+            } catch (erro) {
+                alert('Erro grave de comunicação com o servidor.');
             }
         }
     }

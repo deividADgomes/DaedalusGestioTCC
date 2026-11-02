@@ -1,8 +1,8 @@
 :root {
-    --bg-base: #0f172a; /* Slate 900 */
-    --bg-surface: #1e293b; /* Slate 800 */
-    --border-color: #334155; /* Slate 700 */
-    --accent: #06b6d4; /* Cyan 500 */
+    --bg-base: #0f172a;
+    --bg-surface: #1e293b;
+    --border-color: #334155;
+    --accent: #06b6d4;
     --accent-glow: rgba(6, 182, 212, 0.3);
     --text-main: #f8fafc;
     --text-muted: #94a3b8;
@@ -14,7 +14,6 @@ body {
     font-family: 'Inter', 'Segoe UI', sans-serif;
 }
 
-/* Container do Input Dinâmico (Floating Label) */
 .input-group {
     position: relative;
     margin-bottom: 0.5rem;
@@ -26,7 +25,7 @@ body {
     background-color: rgba(15, 23, 42, 0.4);
     border: 1px solid var(--border-color);
     border-radius: 0.5rem;
-    padding: 1.25rem 1rem 0.5rem 1rem; /* Espaço para o label flutuar no topo */
+    padding: 1.25rem 1rem 0.5rem 1rem;
     color: var(--text-main);
     font-size: 0.875rem;
     transition: all 0.3s ease;
@@ -50,7 +49,6 @@ body {
     transition: all 0.2s ease-out;
 }
 
-/* A mágica do Floating Label: Quando o input está focado, ou quando não está vazio (placeholder não está à mostra), ou quando tem a classe 'has-value' */
 .input-dynamic:focus ~ .label-dynamic,
 .input-dynamic:not(:placeholder-shown) ~ .label-dynamic,
 .input-dynamic.has-value ~ .label-dynamic {
@@ -63,7 +61,6 @@ body {
     text-transform: uppercase;
 }
 
-/* Ajuste específico para áreas de texto (Textareas) */
 textarea.input-dynamic ~ .label-dynamic {
     top: 1.2rem;
 }
@@ -72,7 +69,6 @@ textarea.input-dynamic.has-value ~ .label-dynamic {
     top: 0.4rem;
 }
 
-/* Switch Animado (Substitui o checkbox padrão) */
 .switch-container {
     display: flex;
     align-items: center;
@@ -89,20 +85,19 @@ textarea.input-dynamic.has-value ~ .label-dynamic {
     border-color: #10b981;
 }
 .toggle-checkbox:checked + .toggle-label {
-    background-color: #10b981; /* Fica verde quando ativo */
+    background-color: #10b981;
 }
 
-/* Customização da Scrollbar para combinar com o Dark Mode */
-::-webkit-scrollbar { 
-    width: 6px; 
+::-webkit-scrollbar {
+    width: 6px;
 }
-::-webkit-scrollbar-track { 
-    background: transparent; 
+::-webkit-scrollbar-track {
+    background: transparent;
 }
-::-webkit-scrollbar-thumb { 
-    background: var(--border-color); 
-    border-radius: 10px; 
+::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 10px;
 }
-::-webkit-scrollbar-thumb:hover { 
-    background: var(--text-muted); 
+::-webkit-scrollbar-thumb:hover {
+    background: var(--text-muted);
 }

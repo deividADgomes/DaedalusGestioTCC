@@ -1,29 +1,28 @@
 import json
+import os
 import shutil
 import tempfile
 import time
+from datetime import datetime
 from io import BytesIO
 from unittest import mock
-from datetime import datetime
 
 from django.contrib.auth.hashers import make_password
 from django.core import mail
+from django.core.cache import cache
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client, TestCase, override_settings
 from django.utils import timezone
-from django.core.files.uploadedfile import SimpleUploadedFile
 from docx import Document
 from PIL import Image
 
+from . import partsurfer
 from .analytics import classificar, intervalo_wilson, normalizar_texto
 from .dtos import CargoFuncionario, EquipamentoDTO, FuncionarioDTO, StatusPeca, TriagemDTO
 from .models import Empresa, Equipamento, FotoTriagem, Funcionario, Peca, SolicitacaoSenha, Tecnico, Triagem
-from . import partsurfer
 from .services import EquipamentoService, FotoService, FuncionarioService, TriagemService
 
 
-# ------------------------------------------------------------------
-# Auxiliares
-# ------------------------------------------------------------------
 def criar_funcionario(login, cargo='Analista de Triagem', senha='senha123', primeiro_acesso=False, email=None):
     return Funcionario.objects.create(
         cargo=cargo, nome=f'Funcionario {login}', login=login,
@@ -64,11 +63,7 @@ def logar(client, login, senha='senha123'):
     return resposta
 
 
-# ------------------------------------------------------------------
-# Autenticação, senhas e perfis (RF10, RF12, RF13, RF14, RNF05)
-# ------------------------------------------------------------------
 class AutenticacaoTests(TestCase):
-
     def test_rotas_exigem_login(self):
         resposta = self.client.get('/principal/')
         self.assertEqual(resposta.status_code, 302)
@@ -134,20 +129,19 @@ class AutenticacaoTests(TestCase):
         self.assertFalse(Funcionario.objects.get(login=400).primeiro_acesso)
         self.assertEqual(self.client.get('/api/triagem/').status_code, 200)
 
-        # a senha nova passa a valer
         self.client.get('/logout/')
         logar(self.client, 400, 'nova1234')
 
     def test_regras_da_nova_senha(self):
         func = criar_funcionario(4100, senha='atual123')
         with self.assertRaises(ValueError):
-            FuncionarioService.alterar_senha(func.id_funcionario, 'atual123', 'abc')        # curta
+            FuncionarioService.alterar_senha(func.id_funcionario, 'atual123', 'abc')
         with self.assertRaises(ValueError):
-            FuncionarioService.alterar_senha(func.id_funcionario, 'atual123', 'atual123')   # igual a atual
+            FuncionarioService.alterar_senha(func.id_funcionario, 'atual123', 'atual123')
         with self.assertRaises(ValueError):
-            FuncionarioService.alterar_senha(func.id_funcionario, 'atual123', '4100')       # igual a matricula
+            FuncionarioService.alterar_senha(func.id_funcionario, 'atual123', '4100')
         with self.assertRaises(ValueError):
-            FuncionarioService.alterar_senha(func.id_funcionario, 'errada', 'nova12345')    # atual incorreta
+            FuncionarioService.alterar_senha(func.id_funcionario, 'errada', 'nova12345')
 
     def test_reset_pelo_administrador_exige_nova_troca(self):
         func = criar_funcionario(420, primeiro_acesso=False)
@@ -162,7 +156,7 @@ class AutenticacaoTests(TestCase):
         criar_funcionario(501, cargo='Administrador')
 
         logar(self.client, 500)
-        self.assertEqual(self.client.get('/api/funcionario/').status_code, 200)   # listagem liberada
+        self.assertEqual(self.client.get('/api/funcionario/').status_code, 200)
         corpo = {'nome': 'Teste', 'cargo': 'Funcionário', 'login': 502, 'email': 'teste@empresa.com'}
         self.assertEqual(post_json(self.client, '/api/funcionario/', corpo).status_code, 403)
         self.assertEqual(self.client.get('/gerenciar-funcionario/').status_code, 302)
@@ -173,11 +167,7 @@ class AutenticacaoTests(TestCase):
         self.assertEqual(self.client.get('/gerenciar-funcionario/').status_code, 200)
 
 
-# ------------------------------------------------------------------
-# Catálogo de equipamentos (UC12)
-# ------------------------------------------------------------------
 class EquipamentoTests(TestCase):
-
     def test_pn_duplicado_e_rejeitado(self):
         EquipamentoService.salvar(EquipamentoDTO(pn='ABC-1', modelo='Modelo 1'))
         with self.assertRaises(ValueError):
@@ -194,21 +184,16 @@ class EquipamentoTests(TestCase):
             EquipamentoService.salvar(EquipamentoDTO(pn=' ', modelo='Modelo'))
 
 
-# ------------------------------------------------------------------
-# Dashboard / BI (RF05, UC03): filtros, comparação, controle estatístico e insights
-# ------------------------------------------------------------------
-def em(ano, mes, dia):
+def meio_dia_em(ano, mes, dia):
     return timezone.make_aware(datetime(ano, mes, dia, 12, 0))
 
 
 class EstatisticaTests(TestCase):
-
     def test_intervalo_de_wilson(self):
         self.assertEqual(intervalo_wilson(0, 0), (0.0, 0.0))
         inf, sup = intervalo_wilson(5, 10)
         self.assertAlmostEqual(inf, 0.2366, places=3)
         self.assertAlmostEqual(sup, 0.7634, places=3)
-        # poucos casos geram intervalo largo: 10 de 10 não vira "100% certo"
         self.assertLess(intervalo_wilson(10, 10)[0], 0.75)
 
     def test_classificacao_pela_carta_de_controle(self):
@@ -224,11 +209,10 @@ class EstatisticaTests(TestCase):
 
 
 class DashboardTests(TestCase):
-
     def setUp(self):
         self.func = criar_funcionario(600, cargo='Gestor')
-        criar_triagem(self.func, n_ticket=1, data=em(2026, 1, 10), status=1)
-        criar_triagem(self.func, n_ticket=2, data=em(2026, 3, 10), status=2)
+        criar_triagem(self.func, n_ticket=1, data=meio_dia_em(2026, 1, 10), status=1)
+        criar_triagem(self.func, n_ticket=2, data=meio_dia_em(2026, 3, 10), status=2)
         logar(self.client, 600)
 
     def dados(self, query=''):
@@ -258,13 +242,12 @@ class DashboardTests(TestCase):
         self.assertEqual(self.client.get('/api/dashboard/?tecnico=abc').status_code, 400)
 
     def test_comparacao_com_o_periodo_anterior(self):
-        criar_triagem(self.func, n_ticket=3, data=em(2026, 2, 10), status=1)   # cai no período anterior a março
+        criar_triagem(self.func, n_ticket=3, data=meio_dia_em(2026, 2, 10), status=1)
         dados = self.dados('?inicio=2026-03-01&fim=2026-03-31')
         self.assertEqual(dados['meta']['anterior'], {'inicio': '2026-01-29', 'fim': '2026-02-28'})
         taxa = dados['kpis']['taxa_nff']
         self.assertEqual(taxa['anterior'], 100.0)
         self.assertEqual(taxa['delta'], -100.0)
-        # desligando a comparação, o anterior some
         sem = self.dados('?inicio=2026-03-01&fim=2026-03-31&comparar=0')
         self.assertIsNone(sem['kpis']['taxa_nff']['anterior'])
 
@@ -274,27 +257,25 @@ class DashboardTests(TestCase):
         self.assertEqual(dados['serie']['granularidade'], 'dia')
         self.assertEqual(len(pontos), 10)
         self.assertEqual(sum(p['total'] for p in pontos), 1)
-        self.assertIsNone(pontos[0]['taxa_nff'])          # dia sem triagens não vira 0%
+        self.assertIsNone(pontos[0]['taxa_nff'])
 
     def test_filtro_por_tecnico_e_prestadora(self):
         prestadora = Empresa.objects.get(cnpj='11111111000111')
         outro = Tecnico.objects.create(nome='Outro Tecnico', empresa=prestadora)
-        criar_triagem(self.func, n_ticket=9, tecnico=outro, data=em(2026, 3, 11))
+        criar_triagem(self.func, n_ticket=9, tecnico=outro, data=meio_dia_em(2026, 3, 11))
         self.assertEqual(self.dados(f'?tecnico={outro.id_tecnico}')['kpis']['triagens']['valor'], 1)
         self.assertEqual(self.dados(f'?prestadora={prestadora.id_empresa}')['kpis']['triagens']['valor'], 3)
         self.assertEqual(self.dados('?estado=sp')['kpis']['triagens']['valor'], 3)
         self.assertEqual(self.client.get('/api/dashboard/?estado=RJ').json()['vazio'], True)
 
     def test_acertos_erros_do_tecnico_e_divergencia_de_diagnostico(self):
-        # peça com defeito confirmado, diagnóstico igual após normalizar (acento, caixa e pontuação)
-        criar_triagem(self.func, n_ticket=3, status=2, data=em(2026, 3, 12),
+        criar_triagem(self.func, n_ticket=3, status=2, data=meio_dia_em(2026, 3, 12),
                       defeito_tecnico='Placa-mãe', defeito_constatado='placa mae')
         dados = self.dados()
         tec = dados['tecnicos'][0]
-        # acerto = defeito confirmado (status 2); erro = peça funcional (status 1)
         self.assertEqual((tec['acertos'], tec['nff'], tec['total']), (2, 1, 3))
         self.assertEqual(tec['taxa_acerto'], 66.7)
-        self.assertEqual(tec['divergencias'], 2)      # tickets 1 e 2 divergem; o 3 coincide
+        self.assertEqual(tec['divergencias'], 2)
         self.assertEqual(dados['kpis']['divergentes'], 2)
         self.assertEqual(dados['kpis']['comparaveis'], 3)
 
@@ -304,8 +285,8 @@ class DashboardTests(TestCase):
         bom = Tecnico.objects.create(nome='Tecnico Bom', empresa=prestadora)
         Triagem.objects.all().delete()
         for i in range(10):
-            criar_triagem(self.func, n_ticket=100 + i, tecnico=ruim, status=1, data=em(2026, 3, 5))
-            criar_triagem(self.func, n_ticket=200 + i, tecnico=bom, status=2, data=em(2026, 3, 6))
+            criar_triagem(self.func, n_ticket=100 + i, tecnico=ruim, status=1, data=meio_dia_em(2026, 3, 5))
+            criar_triagem(self.func, n_ticket=200 + i, tecnico=bom, status=2, data=meio_dia_em(2026, 3, 6))
         dados = self.dados()
         por_nome = {t['nome']: t for t in dados['tecnicos']}
         self.assertEqual(por_nome['Tecnico Ruim']['status'], 'critico')
@@ -314,12 +295,12 @@ class DashboardTests(TestCase):
         titulos = [i['titulo'] for i in dados['insights']]
         self.assertTrue(any('Tecnico Ruim fora do limite de controle' in t for t in titulos))
         insight = next(i for i in dados['insights'] if 'Tecnico Ruim' in i['titulo'])
-        self.assertEqual(insight['filtro'], {'tecnico': ruim.id_tecnico})   # permite drill-down
-        self.assertEqual(dados['insights'][0]['nivel'], 'critico')     # o mais grave vem primeiro
+        self.assertEqual(insight['filtro'], {'tecnico': ruim.id_tecnico})
+        self.assertEqual(dados['insights'][0]['nivel'], 'critico')
 
     def test_amostra_pequena_nao_e_classificada(self):
-        for i in range(2):                                   # 2 do setUp + 2 = 4 triagens (< 5)
-            criar_triagem(self.func, n_ticket=300 + i, status=1, data=em(2026, 3, 7))
+        for i in range(2):
+            criar_triagem(self.func, n_ticket=300 + i, status=1, data=meio_dia_em(2026, 3, 7))
         tecnicos = self.dados()['tecnicos']
         self.assertEqual(tecnicos[0]['total'], 4)
         self.assertEqual(tecnicos[0]['status'], 'insuficiente')
@@ -336,8 +317,8 @@ class DashboardTests(TestCase):
         self.assertEqual(pareto['itens'][-1]['acumulado_pct'], 100.0)
 
     def test_reincidencia_por_numero_de_serie(self):
-        criar_triagem(self.func, n_ticket=21, sn='abc123', data=em(2026, 3, 8))
-        criar_triagem(self.func, n_ticket=22, sn=' ABC123 ', data=em(2026, 3, 9))
+        criar_triagem(self.func, n_ticket=21, sn='abc123', data=meio_dia_em(2026, 3, 8))
+        criar_triagem(self.func, n_ticket=22, sn=' ABC123 ', data=meio_dia_em(2026, 3, 9))
         reinc = self.dados()['reincidencia']
         self.assertEqual(reinc['series'], 1)
         self.assertEqual(reinc['triagens'], 2)
@@ -356,14 +337,14 @@ class DashboardTests(TestCase):
         self.assertEqual(trans['itens'][0]['pct'], 100.0)
 
     def test_exportacao_csv_respeita_filtros_e_neutraliza_formulas(self):
-        criar_triagem(self.func, n_ticket=50, data=em(2026, 3, 15), cidade='=SOMA(1;1)')
+        criar_triagem(self.func, n_ticket=50, data=meio_dia_em(2026, 3, 15), cidade='=SOMA(1;1)')
         resposta = self.client.get('/api/dashboard/exportar/?inicio=2026-03-01&fim=2026-03-31')
         self.assertEqual(resposta.status_code, 200)
         self.assertIn('text/csv', resposta['Content-Type'])
         texto = resposta.content.decode('utf-8-sig')
         linhas = texto.strip().splitlines()
-        self.assertEqual(len(linhas), 3)               # cabeçalho + 2 triagens de março
-        self.assertIn("'=SOMA(1;1)", texto)            # fórmula neutralizada
+        self.assertEqual(len(linhas), 3)
+        self.assertIn("'=SOMA(1;1)", texto)
         self.assertNotIn(';=SOMA', texto)
 
     def test_exportacao_exige_login(self):
@@ -371,11 +352,7 @@ class DashboardTests(TestCase):
         self.assertEqual(self.client.get('/api/dashboard/exportar/').status_code, 401)
 
 
-# ------------------------------------------------------------------
-# Triagem, laudo .docx e desempenho (RF02, RF06, RNF03, RNF04)
-# ------------------------------------------------------------------
 class TriagemELaudoTests(TestCase):
-
     def setUp(self):
         self.func = criar_funcionario(700)
 
@@ -386,7 +363,7 @@ class TriagemELaudoTests(TestCase):
         doc = Document(buffer)
         self.assertEqual(doc.tables[2].cell(0, 0).text, 'Data: 10/01/2026')
 
-    def test_tempo_de_gravacao_menor_que_2_segundos(self):  # RNF03
+    def test_tempo_de_gravacao_menor_que_2_segundos(self):
         criar_triagem(self.func, n_ticket=1)
         base = Triagem.objects.get(n_ticket=1)
         dto = TriagemDTO(
@@ -401,7 +378,7 @@ class TriagemELaudoTests(TestCase):
         TriagemService.salvar(dto)
         self.assertLess(time.perf_counter() - inicio, 2.0)
 
-    def test_tempo_de_geracao_do_laudo_menor_que_5_segundos(self):  # RNF04
+    def test_tempo_de_geracao_do_laudo_menor_que_5_segundos(self):
         tri = criar_triagem(self.func)
         inicio = time.perf_counter()
         TriagemService.gerar_docx(tri.id_triagem)
@@ -412,11 +389,7 @@ class TriagemELaudoTests(TestCase):
             TriagemService.buscar_por_filtro('analista_triagem__senha', 'x')
 
 
-# ------------------------------------------------------------------
-# CSRF (agora ativo em todas as APIs)
-# ------------------------------------------------------------------
 class CsrfTests(TestCase):
-
     def test_post_sem_token_e_rejeitado(self):
         criar_funcionario(800)
         cliente = Client(enforce_csrf_checks=True)
@@ -427,47 +400,38 @@ class CsrfTests(TestCase):
     def test_post_com_token_do_cookie_funciona(self):
         criar_funcionario(801)
         cliente = Client(enforce_csrf_checks=True)
-        cliente.get('/')  # a tela de login entrega o cookie csrftoken
+        cliente.get('/')
         token = cliente.cookies['csrftoken'].value
         resposta = cliente.post('/api/login/', json.dumps({'login': 801, 'senha': 'senha123'}),
                                 content_type='application/json', HTTP_X_CSRFTOKEN=token)
         self.assertEqual(resposta.status_code, 200)
 
 
-# ------------------------------------------------------------------
-# Recuperação de senha por solicitação ao administrador (UC09)
-# ------------------------------------------------------------------
 class RecuperacaoSenhaTests(TestCase):
-
     def test_fluxo_completo_com_email_ao_administrador(self):
         func = criar_funcionario(900, senha='antiga123')
         criar_funcionario(901, cargo='Administrador')
-        pedido = {'login': 900, 'email': 'FUNC900@empresa.com'}   # e-mail sem diferenciar maiúsculas
+        pedido = {'login': 900, 'email': 'FUNC900@empresa.com'}
 
-        # público: não exige login
         self.assertEqual(post_json(self.client, '/api/recuperar-senha/', pedido).status_code, 200)
         self.assertEqual(SolicitacaoSenha.objects.filter(funcionario=func, atendida=False).count(), 1)
 
-        # o administrador recebe o e-mail e pode responder ao solicitante
         self.assertEqual(len(mail.outbox), 1)
         mensagem = mail.outbox[0]
         self.assertEqual(mensagem.to, ['func901@empresa.com'])
         self.assertEqual(mensagem.reply_to, ['func900@empresa.com'])
         self.assertIn('900', mensagem.body)
 
-        # repetir o pedido não duplica nem reenvia o e-mail
         post_json(self.client, '/api/recuperar-senha/', pedido)
         self.assertEqual(SolicitacaoSenha.objects.count(), 1)
         self.assertEqual(len(mail.outbox), 1)
 
-        # a lista de pedidos é restrita
         self.assertEqual(self.client.get('/api/solicitacoes-senha/').status_code, 401)
         logar(self.client, 901)
         pedidos = self.client.get('/api/solicitacoes-senha/').json()['dados']
         self.assertEqual(len(pedidos), 1)
         self.assertEqual(pedidos[0]['login'], 900)
 
-        # o administrador redefine: pedido atendido e o usuário volta ao primeiro acesso
         corpo = {'id': func.id_funcionario, 'nome': func.nome, 'cargo': 'Analista de Triagem',
                  'login': 900, 'email': func.email, 'senha': 'provisoria1'}
         self.assertEqual(post_json(self.client, '/api/funcionario/', corpo).status_code, 200)
@@ -479,9 +443,9 @@ class RecuperacaoSenhaTests(TestCase):
         criar_funcionario(910)
         criar_funcionario(911, cargo='Administrador')
         casos = [
-            {'login': 910, 'email': 'outro@empresa.com'},   # e-mail errado
-            {'login': 99999, 'email': 'func910@empresa.com'},  # matrícula inexistente
-            {'login': 910},                                   # sem e-mail
+            {'login': 910, 'email': 'outro@empresa.com'},
+            {'login': 99999, 'email': 'func910@empresa.com'},
+            {'login': 910},
         ]
         for caso in casos:
             self.assertEqual(post_json(self.client, '/api/recuperar-senha/', caso).status_code, 200)
@@ -509,11 +473,7 @@ class RecuperacaoSenhaTests(TestCase):
         self.assertEqual(self.client.get('/api/solicitacoes-senha/').status_code, 403)
 
 
-# ------------------------------------------------------------------
-# Regras do Gestor aplicadas no servidor (RF12)
-# ------------------------------------------------------------------
 class GestorTests(TestCase):
-
     def test_gestor_nao_cria_nem_altera_gestor_ou_administrador(self):
         criar_funcionario(1000, cargo='Gestor')
         alvo = criar_funcionario(1003, cargo='Administrador')
@@ -529,9 +489,6 @@ class GestorTests(TestCase):
         self.assertEqual(post_json(self.client, '/api/funcionario/', rebaixar).status_code, 403)
 
 
-# ------------------------------------------------------------------
-# Peças por modelo e fotos da triagem
-# ------------------------------------------------------------------
 def imagem_teste(formato='PNG', tamanho=(40, 30), nome='foto.png', tipo='image/png'):
     buf = BytesIO()
     Image.new('RGB', tamanho, (200, 30, 30)).save(buf, format=formato)
@@ -545,16 +502,15 @@ class PecasPorModeloTests(TestCase):
         self.equip = Equipamento.objects.create(pn='PN-9', modelo='Notebook Z')
 
     def test_salvar_pecas_cria_normaliza_e_substitui(self):
-        r = post_json(self.client, '/api/modelo-equipamento/pecas/', {
+        resposta = post_json(self.client, '/api/modelo-equipamento/pecas/', {
             'id_equipamento': self.equip.id_equipamento,
             'pecas': [{'part_number': ' l12345-001 ', 'descricao': 'Bateria'},
                       {'part_number': 'L12345-001', 'descricao': 'Bateria 3 células'},
                       {'part_number': 'M99', 'descricao': 'Tela'}, {'part_number': '  '}]})
-        self.assertEqual(r.status_code, 200)
-        self.assertEqual([p['part_number'] for p in r.json()['dados']], ['L12345-001', 'M99'])
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual([p['part_number'] for p in resposta.json()['dados']], ['L12345-001', 'M99'])
         self.assertEqual(Peca.objects.get(part_number='L12345-001').descricao, 'Bateria 3 células')
 
-        # substituir: some M99 do modelo, mas a peça continua no catálogo
         post_json(self.client, '/api/modelo-equipamento/pecas/', {
             'id_equipamento': self.equip.id_equipamento, 'pecas': [{'part_number': 'L12345-001'}]})
         self.assertEqual(self.equip.pecas.count(), 1)
@@ -573,11 +529,11 @@ class PecasPorModeloTests(TestCase):
         self.assertEqual(dados[0]['total_pecas'], 2)
 
     def test_entradas_invalidas(self):
-        r = post_json(self.client, '/api/modelo-equipamento/pecas/',
+        resposta = post_json(self.client, '/api/modelo-equipamento/pecas/',
                       {'id_equipamento': self.equip.id_equipamento, 'pecas': 'x'})
-        self.assertEqual(r.status_code, 400)
-        r = post_json(self.client, '/api/modelo-equipamento/pecas/', {'id_equipamento': 99999, 'pecas': []})
-        self.assertEqual(r.status_code, 404)
+        self.assertEqual(resposta.status_code, 400)
+        resposta = post_json(self.client, '/api/modelo-equipamento/pecas/', {'id_equipamento': 99999, 'pecas': []})
+        self.assertEqual(resposta.status_code, 404)
         self.assertEqual(self.client.get('/api/modelo-equipamento/pecas/').status_code, 400)
 
     def test_exige_login(self):
@@ -605,9 +561,9 @@ class PecasPorModeloTests(TestCase):
     def test_dashboard_lista_pecas_mais_trocadas(self):
         EquipamentoService.salvar_pecas(self.equip.id_equipamento, [{'part_number': 'BAT-1', 'descricao': 'Bateria'}])
         peca = Peca.objects.get(part_number='BAT-1')
-        criar_triagem(self.func, n_ticket=1, status=1, peca_trocada=peca)   # NFF
-        criar_triagem(self.func, n_ticket=2, status=2, peca_trocada=peca)   # defeito confirmado
-        criar_triagem(self.func, n_ticket=3, status=2)                      # sem peça do catálogo
+        criar_triagem(self.func, n_ticket=1, status=1, peca_trocada=peca)
+        criar_triagem(self.func, n_ticket=2, status=2, peca_trocada=peca)
+        criar_triagem(self.func, n_ticket=3, status=2)
         dados = self.client.get('/api/dashboard/').json()
         pecas = dados['pecas']
         self.assertEqual(pecas['itens'][0]['part_number'], 'BAT-1')
@@ -632,15 +588,14 @@ class FotosTriagemTests(TestCase):
         return self.client.post('/api/triagem/fotos/', {'id_triagem': self.tri.id_triagem, 'arquivo': arquivo, **extra})
 
     def test_upload_listagem_e_download(self):
-        r = self.enviar(imagem_teste(), legenda='Placa danificada')
-        self.assertEqual(r.status_code, 200, r.content)
-        foto = r.json()['dado']
+        resposta = self.enviar(imagem_teste(), legenda='Placa danificada')
+        self.assertEqual(resposta.status_code, 200, resposta.content)
+        foto = resposta.json()['dado']
         self.assertEqual(foto['legenda'], 'Placa danificada')
         arq = self.client.get(foto['url'])
         self.assertEqual(arq.status_code, 200)
         self.assertEqual(arq['Content-Type'], 'image/jpeg')
         self.assertEqual(arq['X-Content-Type-Options'], 'nosniff')
-        # aparece na consulta da triagem
         dado = self.client.get(f'/api/triagem/?id={self.tri.id_triagem}').json()['dado']
         self.assertEqual(len(dado['fotos']), 1)
 
@@ -650,17 +605,17 @@ class FotosTriagemTests(TestCase):
 
     def test_rejeita_arquivo_que_nao_e_imagem(self):
         falso = SimpleUploadedFile('virus.png', b'<script>alert(1)</script>', content_type='image/png')
-        r = self.enviar(falso)
-        self.assertEqual(r.status_code, 400)
+        resposta = self.enviar(falso)
+        self.assertEqual(resposta.status_code, 400)
         self.assertEqual(FotoTriagem.objects.count(), 0)
 
     def test_rejeita_formato_nao_suportado(self):
-        r = self.enviar(imagem_teste('GIF', nome='a.gif', tipo='image/gif'))
-        self.assertEqual(r.status_code, 400)
+        resposta = self.enviar(imagem_teste('GIF', nome='a.gif', tipo='image/gif'))
+        self.assertEqual(resposta.status_code, 400)
 
     def test_reduz_foto_grande_e_remove_exif(self):
-        r = self.enviar(imagem_teste('JPEG', tamanho=(3200, 2400), nome='g.jpg', tipo='image/jpeg'))
-        self.assertEqual(r.status_code, 200)
+        resposta = self.enviar(imagem_teste('JPEG', tamanho=(3200, 2400), nome='g.jpg', tipo='image/jpeg'))
+        self.assertEqual(resposta.status_code, 200)
         foto = FotoTriagem.objects.get()
         with Image.open(foto.arquivo.path) as img:
             self.assertLessEqual(max(img.size), FotoService.MAX_LADO)
@@ -673,17 +628,16 @@ class FotosTriagemTests(TestCase):
         self.assertEqual(self.enviar(imagem_teste()).status_code, 400)
 
     def test_triagem_inexistente(self):
-        r = self.client.post('/api/triagem/fotos/', {'id_triagem': 99999, 'arquivo': imagem_teste()})
-        self.assertEqual(r.status_code, 404)
+        resposta = self.client.post('/api/triagem/fotos/', {'id_triagem': 99999, 'arquivo': imagem_teste()})
+        self.assertEqual(resposta.status_code, 404)
 
     def test_excluir_foto_apaga_o_arquivo(self):
         self.enviar(imagem_teste())
         foto = FotoTriagem.objects.get()
         caminho = foto.arquivo.path
-        r = self.client.delete(f'/api/triagem/fotos/?id={foto.id_foto}')
-        self.assertEqual(r.status_code, 200)
+        resposta = self.client.delete(f'/api/triagem/fotos/?id={foto.id_foto}')
+        self.assertEqual(resposta.status_code, 200)
         self.assertFalse(FotoTriagem.objects.exists())
-        import os
         self.assertFalse(os.path.exists(caminho))
         self.assertEqual(self.client.delete(f'/api/triagem/fotos/?id={foto.id_foto}').status_code, 404)
 
@@ -691,24 +645,23 @@ class FotosTriagemTests(TestCase):
         self.enviar(imagem_teste())
         caminho = FotoTriagem.objects.get().arquivo.path
         TriagemService.deletar(self.tri.n_ticket)
-        import os
         self.assertFalse(FotoTriagem.objects.exists())
         self.assertFalse(os.path.exists(caminho))
 
     def test_laudo_docx_inclui_as_fotos(self):
         self.enviar(imagem_teste(), legenda='Vista frontal')
         self.enviar(imagem_teste())
-        r = self.client.get(f'/api/triagem/exportar-docx/?id={self.tri.id_triagem}')
-        self.assertEqual(r.status_code, 200)
-        doc = Document(BytesIO(r.content))
+        resposta = self.client.get(f'/api/triagem/exportar-docx/?id={self.tri.id_triagem}')
+        self.assertEqual(resposta.status_code, 200)
+        doc = Document(BytesIO(resposta.content))
         self.assertEqual(len(doc.inline_shapes), 2)
         textos = ' '.join(p.text for p in doc.paragraphs)
         self.assertIn('Registro fotográfico', textos)
 
     def test_laudo_sem_fotos_continua_funcionando(self):
-        r = self.client.get(f'/api/triagem/exportar-docx/?id={self.tri.id_triagem}')
-        self.assertEqual(r.status_code, 200)
-        self.assertEqual(len(Document(BytesIO(r.content)).inline_shapes), 0)
+        resposta = self.client.get(f'/api/triagem/exportar-docx/?id={self.tri.id_triagem}')
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual(len(Document(BytesIO(resposta.content)).inline_shapes), 0)
 
     def test_upload_exige_csrf(self):
         c = Client(enforce_csrf_checks=True)
@@ -722,12 +675,8 @@ class FotosTriagemTests(TestCase):
         self.assertEqual(c.post('/api/triagem/fotos/', dados, HTTP_X_CSRFTOKEN=token).status_code, 200)
 
 
-# ------------------------------------------------------------------
-# Consulta ao HP PartSurfer (sempre simulada nos testes: sem acesso à internet)
-# ------------------------------------------------------------------
 class PartSurferTests(TestCase):
     def setUp(self):
-        from django.core.cache import cache
         cache.clear()
         self.addCleanup(cache.clear)
         self.func = criar_funcionario(960)
@@ -741,14 +690,14 @@ class PartSurferTests(TestCase):
         hp = [{'part_number': 'bat-1', 'descricao': 'Bateria'}, {'part_number': 'TELA-1', 'descricao': 'Tela'},
               {'part_number': 'TELA-1', 'descricao': 'Tela repetida'}]
         with mock.patch('Daedalus.services.buscar_pecas_por_pn', return_value=hp):
-            r = post_json(self.client, self.url, {})
-        self.assertEqual(r.status_code, 200, r.content)
-        por_pn = {c['part_number']: c for c in r.json()['dados']}
+            resposta = post_json(self.client, self.url, {})
+        self.assertEqual(resposta.status_code, 200, resposta.content)
+        por_pn = {c['part_number']: c for c in resposta.json()['dados']}
         self.assertEqual(set(por_pn), {'BAT-1', 'TELA-1', 'LOCAL-1'})
         self.assertTrue(por_pn['BAT-1']['selecionada'])
         self.assertFalse(por_pn['TELA-1']['selecionada'])
         self.assertTrue(por_pn['LOCAL-1']['somente_local'])
-        self.assertFalse(Peca.objects.filter(part_number='TELA-1').exists())   # nada foi gravado
+        self.assertFalse(Peca.objects.filter(part_number='TELA-1').exists())
 
     def test_sem_pecas_na_hp_vira_404(self):
         with mock.patch('Daedalus.services.buscar_pecas_por_pn', return_value=[]):
@@ -756,9 +705,9 @@ class PartSurferTests(TestCase):
 
     def test_falha_de_comunicacao_vira_502(self):
         with mock.patch('Daedalus.services.buscar_pecas_por_pn', side_effect=partsurfer.PartSurferError('fora do ar')):
-            r = post_json(self.client, self.url, {})
-        self.assertEqual(r.status_code, 502)
-        self.assertIn('fora do ar', r.json()['mensagem'])
+            resposta = post_json(self.client, self.url, {})
+        self.assertEqual(resposta.status_code, 502)
+        self.assertIn('fora do ar', resposta.json()['mensagem'])
 
     def test_limite_por_modelo(self):
         with mock.patch('Daedalus.services.buscar_pecas_por_pn', return_value=[{'part_number': 'X'}]):
@@ -778,11 +727,11 @@ class PartSurferTests(TestCase):
         sessao = mock.MagicMock()
         sessao.__enter__.return_value = sessao
         sessao.get.side_effect = [
-            resposta(),                                                    # home
-            resposta(texto='abc:HPIUID=xyz'),                              # VerifyLogin
+            resposta(),
+            resposta(texto='abc:HPIUID=xyz'),
             resposta(corpo={'Body': [{'PartNumber': ' L1 ', 'EnhancedDescription': 'Bateria'},
                                      {'PartNumber': 'L1', 'EnhancedDescription': 'dup'},
-                                     {'PartNumber': None}, 'lixo']}),     # GetProduct
+                                     {'PartNumber': None}, 'lixo']}),
         ]
         with mock.patch('Daedalus.partsurfer.requests.Session', return_value=sessao):
             pecas = partsurfer.buscar_pecas_por_pn(' abc123#ac4 ')

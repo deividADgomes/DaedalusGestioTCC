@@ -1,10 +1,6 @@
 {% extends 'Daedalus/base.html' %}
 {% load static %}
-{% block title %}Daedalus Gestio - Triagem{% endblock %}
-{% block extra_css %}
-
-{% endblock %}
-
+{% block title %}Daedalus Gestio - Gerenciar Funcionário{% endblock %}
 {% block header %}
 <div>
     <h1 class="text-2xl font-bold text-white">Gerenciamento dos Funcionários</h1>
@@ -121,6 +117,6 @@
 </div>
 {% endblock %}
 
-{%block extra_js %}
+{% block extra_js %}
 <script src="{% static 'Daedalus/GerenciarFuncionario/G_funcionario.js' %}" defer></script>
 {% endblock %}

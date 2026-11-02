@@ -1,61 +1,54 @@
+/// <reference path="../utilitarios.ts" />
+
 (() => {
     class PrimeiroAcessoUI {
-        private form: HTMLFormElement;
-        private btnSalvar: HTMLButtonElement;
-        private erroMsg: HTMLParagraphElement;
+        private form = obterElemento<HTMLFormElement>('form-primeiro-acesso');
+        private botaoSalvar = obterElemento<HTMLButtonElement>('btn-salvar');
+        private mensagemErro = obterElemento<HTMLParagraphElement>('msg-erro');
 
         constructor() {
-            this.form = document.getElementById('form-primeiro-acesso') as HTMLFormElement;
-            this.btnSalvar = document.getElementById('btn-salvar') as HTMLButtonElement;
-            this.erroMsg = document.getElementById('msg-erro') as HTMLParagraphElement;
-
-            this.form.addEventListener('submit', (e) => {
-                e.preventDefault();
+            this.form.addEventListener('submit', (evento) => {
+                evento.preventDefault();
                 this.salvar();
             });
         }
 
         private async salvar(): Promise<void> {
-            const atual = (document.getElementById('senha-atual') as HTMLInputElement).value;
-            const nova = (document.getElementById('nova-senha') as HTMLInputElement).value;
-            const confirma = (document.getElementById('confirma-senha') as HTMLInputElement).value;
+            const senhaAtual = valorDoCampo('senha-atual');
+            const novaSenha = valorDoCampo('nova-senha');
 
-            if (nova !== confirma) {
+            if (novaSenha !== valorDoCampo('confirma-senha')) {
                 this.mostrarErro('As senhas não coincidem!');
                 return;
             }
-            if (nova.length < 4) {
-                this.mostrarErro('A senha deve ter pelo menos 4 caracteres.');
+            if (novaSenha.length < SENHA_MINIMA) {
+                this.mostrarErro(`A senha deve ter pelo menos ${SENHA_MINIMA} caracteres.`);
                 return;
             }
 
-            this.btnSalvar.disabled = true;
-            this.erroMsg.classList.add('hidden');
+            this.botaoSalvar.disabled = true;
+            this.mensagemErro.classList.add('hidden');
 
             try {
-                const resposta = await fetch('/api/alterar-senha/', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ senha_atual: atual, nova_senha: nova })
+                const resultado = await enviarJson('/api/alterar-senha/', {
+                    senha_atual: senhaAtual,
+                    nova_senha: novaSenha,
                 });
-                const resultado = await resposta.json();
-
                 if (resultado.status === 'sucesso') {
                     window.location.href = '/principal/';
-                } else {
-                    this.mostrarErro(resultado.mensagem);
-                    this.btnSalvar.disabled = false;
+                    return;
                 }
-            } catch (error) {
-                console.error(error);
+                this.mostrarErro(resultado.mensagem);
+            } catch (erro) {
+                console.error(erro);
                 this.mostrarErro('Erro de conexão com o servidor.');
-                this.btnSalvar.disabled = false;
             }
+            this.botaoSalvar.disabled = false;
         }
 
-        private mostrarErro(msg: string): void {
-            this.erroMsg.innerText = msg;
-            this.erroMsg.classList.remove('hidden');
+        private mostrarErro(texto: string): void {
+            this.mensagemErro.innerText = texto;
+            this.mensagemErro.classList.remove('hidden');
         }
     }
 

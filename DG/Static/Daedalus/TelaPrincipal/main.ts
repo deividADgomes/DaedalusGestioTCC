@@ -1,269 +1,255 @@
 /// <reference path="../baseUI.ts" />
 
 (() => {
-    class G_triagemUI extends BaseUI {
-        private btnSalvar: HTMLButtonElement;
-        private btnLimpar: HTMLButtonElement;
-        private form: HTMLFormElement;
+    const STATUS_FUNCIONAL = 1;
+    const STATUS_DEFEITO = 2;
+    const MAX_FOTOS = 10;
+    const MAX_BYTES_POR_FOTO = 10 * 1024 * 1024;
+    const TIPOS_DE_IMAGEM = ['image/jpeg', 'image/png', 'image/webp'];
+    const CARGO_ADMINISTRADOR = 'Administrador';
 
-        // Elementos do Toggle (Status)
-        private toggleStatus: HTMLInputElement;
-        private statusTexto: HTMLSpanElement;
+    const OPCAO_SELECIONE = '<option value="" disabled selected>Selecione...</option>';
 
-        private idAtual: number | null = null;
+    interface OpcaoDeLista {
+        id: number;
+        [campo: string]: any;
+    }
+
+    class TriagemUI extends BaseUI {
+        private botaoSalvar = obterElemento<HTMLButtonElement>('btn-salvar');
+        private botaoLimpar = obterElemento<HTMLButtonElement>('btn-limpar');
+        private formulario = obterElemento<HTMLFormElement>('form-triagem');
+        private alternadorDeStatus = obterElemento<HTMLInputElement>('funcional');
+        private textoDoStatus = obterElemento<HTMLSpanElement>('status-texto');
+
         private fotosPendentes: File[] = [];
-        private static readonly MAX_FOTOS = 10;
-        private static readonly MAX_BYTES = 10 * 1024 * 1024;
 
         constructor() {
             super();
-            // IDs ALINHADOS COM O SEU HTML:
-            this.btnSalvar = document.getElementById('btn-salvar') as HTMLButtonElement;
-            this.btnLimpar = document.getElementById('btn-limpar') as HTMLButtonElement;
-            this.form = document.getElementById('form-triagem') as HTMLFormElement;
-
-            this.toggleStatus = document.getElementById('funcional') as HTMLInputElement;
-            this.statusTexto = document.getElementById('status-texto') as HTMLSpanElement;
-
             this.iniciarEventos();
-            this.preencherDataHoje();
-            this.carregarDropdowns();
+            this.preencherDataDeHoje();
+            this.carregarListas();
         }
 
         private iniciarEventos(): void {
-            this.btnSalvar.addEventListener('click', () => this.salvarTriagem());
-            this.btnLimpar.addEventListener('click', () => this.limparFormulario());
+            this.botaoSalvar.addEventListener('click', () => this.salvarTriagem());
+            this.botaoLimpar.addEventListener('click', () => this.limparFormulario());
+            obterElemento('equipamento').addEventListener('change', () => this.carregarPecasDoModelo());
+            obterElemento('input-fotos').addEventListener('change', (evento) => this.selecionarFotos(evento));
+            this.alternadorDeStatus.addEventListener('change', () => this.atualizarTextoDoStatus());
+        }
 
-            (document.getElementById('equipamento') as HTMLSelectElement)
-                .addEventListener('change', () => this.carregarPecasDoModelo());
-            (document.getElementById('input-fotos') as HTMLInputElement)
-                .addEventListener('change', (e) => this.selecionarFotos(e));
+        private atualizarTextoDoStatus(): void {
+            if (this.alternadorDeStatus.checked) {
+                this.textoDoStatus.innerText = 'Funcional';
+                this.textoDoStatus.classList.replace('text-rose-400', 'text-emerald-400');
+            } else {
+                this.restaurarStatusDefeito();
+            }
+        }
 
-            // Lógica do seu Toggle Switch bonito
-            this.toggleStatus.addEventListener('change', () => {
-                if (this.toggleStatus.checked) {
-                    this.statusTexto.innerText = "Funcional";
-                    this.statusTexto.classList.replace("text-rose-400", "text-emerald-400");
-                } else {
-                    this.statusTexto.innerText = "Defeito";
-                    this.statusTexto.classList.replace("text-emerald-400", "text-rose-400");
-                }
+        private restaurarStatusDefeito(): void {
+            this.textoDoStatus.innerText = 'Defeito';
+            this.textoDoStatus.classList.replace('text-emerald-400', 'text-rose-400');
+        }
+
+        private preencherDataDeHoje(): void {
+            definirValorDoCampo('data', new Date().toLocaleDateString('pt-BR'));
+        }
+
+        private async carregarListas(): Promise<void> {
+            try {
+                const [clientes, equipamentos, tecnicos, funcionarios] = await Promise.all([
+                    buscarJson('/api/empresa/?tipo=2'),
+                    buscarJson('/api/modelo-equipamento/'),
+                    buscarJson('/api/tecnico/'),
+                    buscarJson('/api/funcionario/'),
+                ]);
+
+                this.preencherSelect('cliente', clientes, (cliente) => [cliente.razao_social || cliente.nome, cliente.id]);
+                this.preencherSelect('equipamento', equipamentos, (modelo) => [`${modelo.pn} - ${modelo.modelo}`, modelo.id]);
+                this.preencherSelect('tecnico', tecnicos, (tecnico) => [`${tecnico.nome} (${tecnico.nome_empresa})`, tecnico.id]);
+                this.preencherSelect(
+                    'analista',
+                    funcionarios,
+                    (funcionario) => [`${funcionario.nome} - ${funcionario.cargo}`, funcionario.id],
+                    (funcionario) => funcionario.cargo && funcionario.cargo !== CARGO_ADMINISTRADOR
+                );
+            } catch (erro) {
+                console.error('Erro ao carregar selects:', erro);
+            }
+        }
+
+        private preencherSelect(
+            idDoSelect: string,
+            resposta: { status: string; dados: OpcaoDeLista[] },
+            comoOpcao: (item: OpcaoDeLista) => [string, number],
+            incluir: (item: OpcaoDeLista) => boolean = () => true
+        ): void {
+            const select = obterElemento<HTMLSelectElement>(idDoSelect);
+            select.innerHTML = OPCAO_SELECIONE;
+            if (resposta.status !== 'sucesso') return;
+
+            resposta.dados.filter(incluir).forEach((item) => {
+                const [texto, valor] = comoOpcao(item);
+                select.add(new Option(texto, String(valor)));
             });
         }
 
-        // ==========================================
-        // PEÇAS DO MODELO
-        // ==========================================
         private async carregarPecasDoModelo(): Promise<void> {
-            const select = document.getElementById('peca-trocada') as HTMLSelectElement;
-            const idEquip = (document.getElementById('equipamento') as HTMLSelectElement).value;
+            const select = obterElemento<HTMLSelectElement>('peca-trocada');
+            const idEquipamento = valorDoCampo('equipamento');
             select.innerHTML = '<option value="">Carregando...</option>';
+
             try {
-                const res = await fetch(`/api/modelo-equipamento/pecas/?id_equipamento=${idEquip}`).then(r => r.json());
-                const pecas: any[] = res.status === 'sucesso' ? res.dados : [];
+                const resultado = await buscarJson(`/api/modelo-equipamento/pecas/?id_equipamento=${idEquipamento}`);
+                const pecas: { id: number; part_number: string; descricao: string }[] =
+                    resultado.status === 'sucesso' ? resultado.dados : [];
+
                 select.innerHTML = pecas.length
                     ? '<option value="">Nenhuma / outra (descrever ao lado)</option>'
                     : '<option value="">Este modelo não tem peças cadastradas</option>';
-                pecas.forEach(p => select.add(new Option(p.descricao ? `${p.part_number} - ${p.descricao}` : p.part_number, p.id)));
-            } catch (e) {
+                pecas.forEach((peca) => {
+                    const texto = peca.descricao ? `${peca.part_number} - ${peca.descricao}` : peca.part_number;
+                    select.add(new Option(texto, String(peca.id)));
+                });
+            } catch (erro) {
                 select.innerHTML = '<option value="">Não foi possível carregar as peças</option>';
             }
         }
 
-        // ==========================================
-        // FOTOS (enviadas depois que a triagem é salva)
-        // ==========================================
-        private selecionarFotos(e: Event): void {
-            const input = e.target as HTMLInputElement;
-            Array.from(input.files || []).forEach(arq => {
-                if (!['image/jpeg', 'image/png', 'image/webp'].includes(arq.type)) {
-                    alert(`"${arq.name}": use JPG, PNG ou WEBP.`);
-                } else if (arq.size > G_triagemUI.MAX_BYTES) {
-                    alert(`"${arq.name}" excede 10 MB.`);
-                } else if (this.fotosPendentes.length >= G_triagemUI.MAX_FOTOS) {
-                    alert(`Limite de ${G_triagemUI.MAX_FOTOS} fotos por triagem.`);
+        private selecionarFotos(evento: Event): void {
+            const campo = evento.target as HTMLInputElement;
+
+            Array.from(campo.files || []).forEach((arquivo) => {
+                if (!TIPOS_DE_IMAGEM.includes(arquivo.type)) {
+                    alert(`"${arquivo.name}": use JPG, PNG ou WEBP.`);
+                } else if (arquivo.size > MAX_BYTES_POR_FOTO) {
+                    alert(`"${arquivo.name}" excede 10 MB.`);
+                } else if (this.fotosPendentes.length >= MAX_FOTOS) {
+                    alert(`Limite de ${MAX_FOTOS} fotos por triagem.`);
                 } else {
-                    this.fotosPendentes.push(arq);
+                    this.fotosPendentes.push(arquivo);
                 }
             });
-            input.value = '';
+
+            campo.value = '';
             this.desenharPrevia();
         }
 
         private desenharPrevia(): void {
-            const area = document.getElementById('previa-fotos') as HTMLElement;
-            area.querySelectorAll('img').forEach(img => URL.revokeObjectURL(img.src));
+            const area = obterElemento('previa-fotos');
+            area.querySelectorAll('img').forEach((imagem) => URL.revokeObjectURL(imagem.src));
             area.innerHTML = '';
-            this.fotosPendentes.forEach((arq, i) => {
+
+            this.fotosPendentes.forEach((arquivo, indice) => {
                 const item = document.createElement('div');
                 item.className = 'relative group aspect-square rounded-lg overflow-hidden border border-[#334155] bg-slate-900';
-                const img = document.createElement('img');
-                img.src = URL.createObjectURL(arq);
-                img.alt = arq.name;
-                img.className = 'w-full h-full object-cover';
-                const rem = document.createElement('button');
-                rem.type = 'button';
-                rem.textContent = '✕';
-                rem.title = 'Remover';
-                rem.className = 'absolute top-1 right-1 w-6 h-6 rounded-full bg-black/70 text-rose-300 text-xs hover:bg-rose-600 hover:text-white';
-                rem.addEventListener('click', () => { this.fotosPendentes.splice(i, 1); this.desenharPrevia(); });
-                item.append(img, rem);
+
+                const imagem = document.createElement('img');
+                imagem.src = URL.createObjectURL(arquivo);
+                imagem.alt = arquivo.name;
+                imagem.className = 'w-full h-full object-cover';
+
+                const remover = document.createElement('button');
+                remover.type = 'button';
+                remover.textContent = '✕';
+                remover.title = 'Remover';
+                remover.className = 'absolute top-1 right-1 w-6 h-6 rounded-full bg-black/70 text-rose-300 text-xs hover:bg-rose-600 hover:text-white';
+                remover.addEventListener('click', () => {
+                    this.fotosPendentes.splice(indice, 1);
+                    this.desenharPrevia();
+                });
+
+                item.append(imagem, remover);
                 area.appendChild(item);
             });
         }
 
         private async enviarFotos(idTriagem: number): Promise<string[]> {
             const falhas: string[] = [];
-            for (const arq of this.fotosPendentes) {
-                const fd = new FormData();
-                fd.append('id_triagem', String(idTriagem));
-                fd.append('arquivo', arq);
+
+            for (const arquivo of this.fotosPendentes) {
+                const corpo = new FormData();
+                corpo.append('id_triagem', String(idTriagem));
+                corpo.append('arquivo', arquivo);
                 try {
-                    const res = await fetch('/api/triagem/fotos/', { method: 'POST', body: fd }).then(r => r.json());
-                    if (res.status !== 'sucesso') { falhas.push(`${arq.name}: ${res.mensagem}`); }
-                } catch (e) {
-                    falhas.push(`${arq.name}: falha de comunicação`);
+                    const resultado = await requisitarJson('/api/triagem/fotos/', { method: 'POST', body: corpo });
+                    if (resultado.status !== 'sucesso') falhas.push(`${arquivo.name}: ${resultado.mensagem}`);
+                } catch (erro) {
+                    falhas.push(`${arquivo.name}: falha de comunicação`);
                 }
             }
             return falhas;
         }
 
-        private preencherDataHoje(): void {
-            const dataInput = document.getElementById('data') as HTMLInputElement;
-            const hoje = new Date();
-            dataInput.value = hoje.toLocaleDateString('pt-BR');
+        private montarDadosDaTriagem(): Record<string, unknown> {
+            return {
+                n_ticket: parseInt(valorDoCampo('ticket')),
+                nf: parseInt(valorDoCampo('nf')) || 0,
+                cidade: valorDoCampo('Cidade'),
+                estado: valorDoCampo('Estado'),
+                id_cliente: parseInt(valorDoCampo('cliente')),
+                id_equipamento: parseInt(valorDoCampo('equipamento')),
+                id_tecnico: parseInt(valorDoCampo('tecnico')),
+                id_analista: parseInt(valorDoCampo('analista')),
+                sn: valorDoCampo('nserie'),
+                status_peca: this.alternadorDeStatus.checked ? STATUS_FUNCIONAL : STATUS_DEFEITO,
+                troca: valorDoCampo('troca'),
+                id_peca_trocada: valorDoCampo('peca-trocada') || null,
+                defeito_usuario: valorDoCampo('defeitoAlegado'),
+                defeito_tecnico: valorDoCampo('constatacao'),
+                defeito_constatado: valorDoCampo('defeitoResumo'),
+                testes: valorDoCampo('testes'),
+                analise: valorDoCampo('analise'),
+                conclusao: valorDoCampo('conclusao'),
+            };
         }
 
-        private async carregarDropdowns(): Promise<void> {
-            try {
-                const [respClientes, respEquips, respTecnicos, respAnalistas] = await Promise.all([
-                    // FILTRO APLICADO AQUI: ?tipo=2 traz apenas os clientes finais!
-                    fetch('/api/empresa/?tipo=2').then(r => r.json()),
-                    fetch('/api/modelo-equipamento/').then(r => r.json()),
-                    fetch('/api/tecnico/').then(r => r.json()),
-                    fetch('/api/funcionario/').then(r => r.json())
-                ]);
+        private camposObrigatoriosPreenchidos(): boolean {
+            return ['ticket', 'nserie', 'cliente', 'equipamento', 'tecnico', 'analista'].every((id) => valorDoCampo(id));
+        }
 
-                // IDs ALINHADOS COM O SEU HTML:
-                const selectCliente = document.getElementById('cliente') as HTMLSelectElement;
-                selectCliente.innerHTML = '<option value="" disabled selected>Selecione...</option>';
-                if (respClientes.status === 'sucesso') {
-                    respClientes.dados.forEach((cli: any) => selectCliente.add(new Option(cli.razao_social || cli.nome, cli.id)));
-                }
+        private async montarAvisoDeSucesso(mensagem: string, idTriagem?: number): Promise<string> {
+            const aviso = mensagem || 'Triagem salva com sucesso!';
+            if (!this.fotosPendentes.length || !idTriagem) return aviso;
 
-                const selectEquip = document.getElementById('equipamento') as HTMLSelectElement;
-                selectEquip.innerHTML = '<option value="" disabled selected>Selecione...</option>';
-                if (respEquips.status === 'sucesso') {
-                    respEquips.dados.forEach((eq: any) => selectEquip.add(new Option(`${eq.pn} - ${eq.modelo}`, eq.id)));
-                }
-
-                const selectTecnico = document.getElementById('tecnico') as HTMLSelectElement;
-                selectTecnico.innerHTML = '<option value="" disabled selected>Selecione...</option>';
-                if (respTecnicos.status === 'sucesso') {
-                    respTecnicos.dados.forEach((tec: any) => {
-                        // Concatenando o Nome do Técnico + Nome da Empresa
-                        const textoOpcao = `${tec.nome} (${tec.nome_empresa})`;
-                        selectTecnico.add(new Option(textoOpcao, tec.id));
-                    });
-                }
-                const selectAnalista = document.getElementById('analista') as HTMLSelectElement;
-                selectAnalista.innerHTML = '<option value="" disabled selected>Selecione...</option>';
-
-                if (respAnalistas.status === 'sucesso') {
-                    respAnalistas.dados.forEach((func: any) => {
-                        // A trava de segurança: Só adiciona se o cargo existir e for diferente de Administrador
-                        if (func.cargo && func.cargo !== 'Administrador') {
-                            selectAnalista.add(new Option(func.nome + ' - ' + func.cargo, func.id));
-                        }
-                    });
-                }
-            } catch (error) {
-                console.error("Erro ao carregar selects:", error);
-            }
+            const falhas = await this.enviarFotos(idTriagem);
+            return falhas.length
+                ? `${aviso}\n\nAlgumas fotos não foram enviadas (anexe-as depois na tela de visualização):\n- ${falhas.join('\n- ')}`
+                : `${aviso}\n${this.fotosPendentes.length} foto(s) anexada(s).`;
         }
 
         private async salvarTriagem(): Promise<void> {
-            // IDs ALINHADOS COM O SEU HTML:
-            const n_ticket = (document.getElementById('ticket') as HTMLInputElement).value;
-            const sn = (document.getElementById('nserie') as HTMLInputElement).value;
-            const id_cliente = (document.getElementById('cliente') as HTMLSelectElement).value;
-            const id_equipamento = (document.getElementById('equipamento') as HTMLSelectElement).value;
-            const id_tecnico = (document.getElementById('tecnico') as HTMLSelectElement).value;
-            const id_analista = (document.getElementById('analista') as HTMLSelectElement).value;
-
-            // Lê o Toggle Switch para saber se é Funcional (1) ou Nao Funcional (2)
-            const status_peca = this.toggleStatus.checked ? 1 : 2;
-
-            if (!n_ticket || !sn || !id_cliente || !id_equipamento || !id_tecnico || !id_analista) {
-                alert("Preencha todos os campos obrigatórios e selecione as listas!");
+            if (!this.camposObrigatoriosPreenchidos()) {
+                alert('Preencha todos os campos obrigatórios e selecione as listas!');
                 return;
             }
 
-            const dados = {
-                id: this.idAtual,
-                n_ticket: parseInt(n_ticket),
-                nf: parseInt((document.getElementById('nf') as HTMLInputElement).value) || 0,
-                cidade: (document.getElementById('Cidade') as HTMLInputElement).value,
-                estado: (document.getElementById('Estado') as HTMLSelectElement).value,
-                id_cliente: parseInt(id_cliente),
-                id_equipamento: parseInt(id_equipamento),
-                id_tecnico: parseInt(id_tecnico),
-                id_analista: parseInt(id_analista), // O Back-end vai ler isto como o Analista do Chamado
-                sn: sn,
-                status_peca: status_peca,
-                troca: (document.getElementById('troca') as HTMLInputElement).value,
-                id_peca_trocada: (document.getElementById('peca-trocada') as HTMLSelectElement).value || null,
-                defeito_usuario: (document.getElementById('defeitoAlegado') as HTMLTextAreaElement).value,
-                defeito_tecnico: (document.getElementById('constatacao') as HTMLTextAreaElement).value,
-                defeito_constatado: (document.getElementById('defeitoResumo') as HTMLInputElement).value,
-                testes: (document.getElementById('testes') as HTMLInputElement).value,
-                analise: (document.getElementById('analise') as HTMLTextAreaElement).value,
-                conclusao: (document.getElementById('conclusao') as HTMLTextAreaElement).value
-            };
-
             try {
-                const resposta = await fetch('/api/triagem/', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(dados)
-                });
-
-                const resultado = await resposta.json();
-
-                if (resultado.status === 'sucesso') {
-                    let aviso = resultado.mensagem || "Triagem salva com sucesso!";
-                    if (this.fotosPendentes.length && resultado.id_gerado) {
-                        const falhas = await this.enviarFotos(resultado.id_gerado);
-                        aviso += falhas.length
-                            ? `\n\nAlgumas fotos não foram enviadas (anexe-as depois na tela de visualização):\n- ${falhas.join('\n- ')}`
-                            : `\n${this.fotosPendentes.length} foto(s) anexada(s).`;
-                    }
-                    alert(aviso);
-                    this.limparFormulario();
-                } else {
-                    alert("Erro do Servidor: " + resultado.mensagem);
+                const resultado = await enviarJson('/api/triagem/', this.montarDadosDaTriagem());
+                if (resultado.status !== 'sucesso') {
+                    alert('Erro do Servidor: ' + resultado.mensagem);
+                    return;
                 }
-            } catch (error) {
-                console.error("Falha na requisição:", error);
-                alert("Erro ao comunicar com o servidor.");
+                alert(await this.montarAvisoDeSucesso(resultado.mensagem, resultado.id_gerado));
+                this.limparFormulario();
+            } catch (erro) {
+                console.error('Falha na requisição:', erro);
+                alert('Erro ao comunicar com o servidor.');
             }
         }
 
         private limparFormulario(): void {
-            this.form.reset();
-            this.idAtual = null;
-            // Reseta o interruptor
-            this.statusTexto.innerText = "Defeito";
-            this.statusTexto.classList.replace("text-emerald-400", "text-rose-400");
+            this.formulario.reset();
+            this.restaurarStatusDefeito();
             this.fotosPendentes = [];
             this.desenharPrevia();
-            (document.getElementById('peca-trocada') as HTMLSelectElement).innerHTML =
-                '<option value="">Selecione o modelo primeiro</option>';
-
-            document.querySelectorAll('.input-dynamic').forEach(input => input.classList.remove('has-value'));
-            this.preencherDataHoje(); // Mantém a data
+            obterElemento<HTMLSelectElement>('peca-trocada').innerHTML = '<option value="">Selecione o modelo primeiro</option>';
+            marcarRotulosFlutuantes(false);
+            this.preencherDataDeHoje();
         }
     }
 
-    window.addEventListener('DOMContentLoaded', () => new G_triagemUI());
+    window.addEventListener('DOMContentLoaded', () => new TriagemUI());
 })();

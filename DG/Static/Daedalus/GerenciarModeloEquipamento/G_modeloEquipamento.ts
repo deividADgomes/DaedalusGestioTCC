@@ -1,248 +1,365 @@
 /// <reference path="../baseUI.ts" />
 
 (() => {
-    class G_modeloEquipamento extends BaseUI {
-        private btnSalvar: HTMLButtonElement;
-        private btnLimpar: HTMLButtonElement;
-        private form: HTMLFormElement;
-        private listaModeloEquip: HTMLElement;
+    interface PecaModelo {
+        part_number: string;
+        descricao: string;
+    }
+
+    interface CandidataPartSurfer extends PecaModelo {
+        selecionada: boolean;
+        somente_local: boolean;
+    }
+
+    interface ModeloApi {
+        id: number;
+        pn: string;
+        modelo: string;
+        total_pecas?: number;
+    }
+
+    class ModeloEquipamentoUI extends BaseUI {
+        private botaoSalvar = obterElemento<HTMLButtonElement>('btn-salvar-modelo');
+        private botaoLimpar = obterElemento<HTMLButtonElement>('btn-limpar');
+        private formulario = obterElemento<HTMLFormElement>('form-cadastro-modelo');
+        private listaModelos = obterElemento('lista-modelos');
+        private campoPesquisa = obterElemento<HTMLInputElement>('pesquisa-modelo');
+
         private idAtual: number | null = null;
-        private pecas: { part_number: string; descricao: string }[] = [];
-        private candidatas: { part_number: string; descricao: string; selecionada: boolean; somente_local: boolean }[] = [];
-        
+        private modelos: ModeloApi[] = [];
+        private pecas: PecaModelo[] = [];
+        private candidatas: CandidataPartSurfer[] = [];
+
         constructor() {
             super();
-            this.btnSalvar = document.getElementById('btn-salvar-modelo') as HTMLButtonElement;
-            this.btnLimpar = document.getElementById('btn-limpar') as HTMLButtonElement;
-            this.form = document.getElementById('form-cadastro-modelo') as HTMLFormElement;
-            this.listaModeloEquip = document.getElementById('lista-modelos') as HTMLElement;
-
             this.iniciarEventos();
-            this.iniciarEventosPecas();
-            this.carregarModelos(); // Busca os dados do servidor ao abrir a tela
+            this.iniciarEventosDePecas();
+            this.carregarModelos();
         }
 
         private iniciarEventos(): void {
-            this.btnSalvar.addEventListener('click', () => this.salvarModelo());
-            this.btnLimpar.addEventListener('click', () => this.limparFormulario());
+            this.botaoSalvar.addEventListener('click', () => this.salvarModelo());
+            this.botaoLimpar.addEventListener('click', () => this.limparFormulario());
+            this.campoPesquisa.addEventListener('input', () => this.filtrarModelos());
         }
 
-        // ==========================================
-        // LÓGICA DE SALVAR / ALTERAR (POST)
-        // ==========================================
+        private iniciarEventosDePecas(): void {
+            const aoClicar: Record<string, () => void> = {
+                'btn-add-peca': () => this.adicionarPecaDoFormulario(),
+                'btn-importar-pecas': () => this.importarLista(),
+                'btn-salvar-pecas': () => this.salvarPecas(),
+                'btn-partsurfer': () => this.buscarNoPartSurfer(),
+                'ps-fechar': () => this.fecharPartSurfer(),
+                'ps-aplicar': () => this.aplicarSelecaoDoPartSurfer(),
+                'ps-marcar-todas': () => this.marcarCandidatas(true),
+                'ps-desmarcar': () => this.marcarCandidatas(false),
+            };
+            Object.entries(aoClicar).forEach(([id, acao]) => {
+                document.getElementById(id)?.addEventListener('click', acao);
+            });
+
+            document.getElementById('peca-pn')?.addEventListener('keydown', (evento) => {
+                if ((evento as KeyboardEvent).key === 'Enter') {
+                    evento.preventDefault();
+                    this.adicionarPecaDoFormulario();
+                }
+            });
+            document.getElementById('ps-filtro')?.addEventListener('input', () => this.desenharCandidatas());
+        }
+
         private async salvarModelo(): Promise<void> {
-            // Presumindo que os IDs dos inputs no seu HTML sejam 'pn' e 'modelo'
-            const pn = (document.getElementById('pn') as HTMLInputElement).value;
-            const modelo = (document.getElementById('modelo') as HTMLInputElement).value;
+            const pn = valorDoCampo('pn');
+            const modelo = valorDoCampo('modelo');
 
             if (!pn || !modelo) {
-                alert("Preencha todos os campos obrigatórios (PN e Modelo)!");
+                alert('Preencha todos os campos obrigatórios (PN e Modelo)!');
                 return;
             }
 
-            // O pacote de dados alinhado com o EquipamentoDTO
-            const dados = {
-                id: this.idAtual,
-                pn: pn,
-                modelo: modelo
-            };
-
             try {
-                const resposta = await fetch('/api/modelo-equipamento/', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(dados)
-                });
-
-                const resultado = await resposta.json();
-
-                if (resultado.status === 'sucesso') {
-                    alert(resultado.mensagem);
-                    const idSalvo: number = resultado.id_gerado;
-                    this.limparFormulario();
-                    this.carregarModelos(); // Atualiza a grid
-                    // Já abre o editor de peças do modelo recém-salvo
-                    if (idSalvo) { this.prepararEdicao(idSalvo, pn, modelo); }
-                } else {
-                    alert("Erro: " + resultado.mensagem);
+                const resultado = await enviarJson('/api/modelo-equipamento/', { id: this.idAtual, pn, modelo });
+                if (resultado.status !== 'sucesso') {
+                    alert('Erro: ' + resultado.mensagem);
+                    return;
                 }
-            } catch (error) {
-                console.error("Falha na requisição:", error);
-                alert("Erro ao comunicar com o servidor.");
+                alert(resultado.mensagem);
+                const idSalvo: number = resultado.id_gerado;
+                this.limparFormulario();
+                this.carregarModelos();
+                if (idSalvo) this.prepararEdicao(idSalvo, pn, modelo);
+            } catch (erro) {
+                console.error('Falha na requisição:', erro);
+                alert('Erro ao comunicar com o servidor.');
             }
         }
 
-        // ==========================================
-        // LÓGICA DE LISTAGEM (GET)
-        // ==========================================
         private async carregarModelos(): Promise<void> {
-            this.listaModeloEquip.innerHTML = '<p class="text-sm font-medium text-slate-500 uppercase col-span-full text-center py-10">Carregando dados do servidor...</p>';
+            this.listaModelos.innerHTML = htmlMensagemNeutra('Carregando dados do servidor...');
 
             try {
-                const resposta = await fetch('/api/modelo-equipamento/');
-                const resultado = await resposta.json();
-
-                if (resultado.status === 'sucesso') {
-                    this.listaModeloEquip.innerHTML = ''; 
-                    
-                    if (resultado.dados.length === 0) {
-                        this.listaModeloEquip.innerHTML = '<p class="text-sm font-medium text-slate-500 uppercase col-span-full text-center py-10">Nenhum equipamento cadastrado.</p>';
-                        return;
-                    }
-
-                    resultado.dados.forEach((equip: any) => {
-                        const card = document.createElement('div');
-                        card.className = "bg-[#1e293b] p-5 rounded-xl border border-[#334155] shadow-sm hover:border-cyan-500/50 transition-colors cursor-pointer group";
-                        
-                        card.innerHTML = `
-                            <div class="flex justify-between items-start mb-2">
-                                <span class="text-xs font-bold text-cyan-400 uppercase tracking-wider">Equipamento</span>
-                                <span class="text-[10px] text-slate-500 font-mono">ID: ${equip.id}</span>
-                            </div>
-                            <h3 class="text-base font-bold text-slate-200 group-hover:text-cyan-400 transition-colors">${escapeHtml(equip.modelo)}</h3>
-                            <p class="text-xs text-slate-400 mt-1 font-mono">PN: ${escapeHtml(equip.pn)}</p>
-                            <div class="mt-4 pt-3 border-t border-[#334155]/50 flex justify-between">
-                                <span class="text-[10px] text-emerald-400 font-bold uppercase tracking-widest">${equip.total_pecas || 0} peça(s)</span>
-                                <span class="text-[10px] text-slate-500 uppercase font-bold tracking-widest group-hover:text-cyan-500 transition-colors">Duplo clique para editar</span>
-                            </div>
-                        `;
-
-                        // Duplo clique aciona a edição
-                        card.addEventListener('dblclick', () => {
-                            this.prepararEdicao(equip.id, equip.pn, equip.modelo);
-                        });
-
-                        this.listaModeloEquip.appendChild(card);
-                    });
-                } else {
-                    this.listaModeloEquip.innerHTML = `<p class="text-sm font-bold text-red-500 col-span-full text-center py-10">Erro do Servidor: ${resultado.mensagem}</p>`;
+                const resultado = await buscarJson('/api/modelo-equipamento/');
+                if (resultado.status !== 'sucesso') {
+                    this.listaModelos.innerHTML = htmlMensagemErro(`Erro do Servidor: ${resultado.mensagem}`);
+                    return;
                 }
-            } catch (error) {
-                this.listaModeloEquip.innerHTML = '<p class="text-sm font-bold text-red-500 col-span-full text-center py-10">Erro crítico ao tentar conectar com o servidor.</p>';
+                this.modelos = resultado.dados;
+                this.filtrarModelos();
+            } catch (erro) {
+                this.listaModelos.innerHTML = htmlMensagemErro('Erro crítico ao tentar conectar com o servidor.');
             }
         }
 
-        // ==========================================
-        // MANIPULAÇÃO DA INTERFACE DÚPLICE
-        // ==========================================
+        private filtrarModelos(): void {
+            const termo = this.campoPesquisa.value.toLowerCase();
+
+            const filtrados = this.modelos.filter(
+                (modelo) => modelo.modelo.toLowerCase().includes(termo) || modelo.pn.toLowerCase().includes(termo)
+            );
+
+            this.renderizarCards(filtrados);
+        }
+
+        private renderizarCards(modelos: ModeloApi[]): void {
+            this.listaModelos.innerHTML = '';
+
+            if (modelos.length === 0) {
+                this.listaModelos.innerHTML = htmlMensagemNeutra('Nenhum equipamento encontrado.');
+                return;
+            }
+
+            modelos.forEach((equipamento) => {
+                const card = document.createElement('div');
+                card.className = 'bg-[#1e293b] p-5 rounded-xl border border-[#334155] shadow-sm hover:border-cyan-500/50 transition-colors cursor-pointer group';
+                card.innerHTML = `
+                    <div class="flex justify-between items-start mb-2">
+                        <span class="text-xs font-bold text-cyan-400 uppercase tracking-wider">Equipamento</span>
+                        <span class="text-[10px] text-slate-500 font-mono">ID: ${equipamento.id}</span>
+                    </div>
+                    <h3 class="text-base font-bold text-slate-200 group-hover:text-cyan-400 transition-colors">${escapeHtml(equipamento.modelo)}</h3>
+                    <p class="text-xs text-slate-400 mt-1 font-mono">PN: ${escapeHtml(equipamento.pn)}</p>
+                    <div class="mt-4 pt-3 border-t border-[#334155]/50 flex justify-between">
+                        <span class="text-[10px] text-emerald-400 font-bold uppercase tracking-widest">${equipamento.total_pecas || 0} peça(s)</span>
+                        <span class="text-[10px] text-slate-500 uppercase font-bold tracking-widest group-hover:text-cyan-500 transition-colors">Duplo clique para editar</span>
+                    </div>
+                `;
+                card.addEventListener('dblclick', () => this.prepararEdicao(equipamento.id, equipamento.pn, equipamento.modelo));
+                this.listaModelos.appendChild(card);
+            });
+        }
+
         private prepararEdicao(id: number, pn: string, modelo: string): void {
             this.idAtual = id;
-            (document.getElementById('pn') as HTMLInputElement).value = pn;
-            (document.getElementById('modelo') as HTMLInputElement).value = modelo;
+            definirValorDoCampo('pn', pn);
+            definirValorDoCampo('modelo', modelo);
 
-            // Sinais visuais de modo de Alteração
-            this.btnSalvar.innerText = "Alterar Registro";
-            this.btnSalvar.classList.replace('bg-cyan-600', 'bg-amber-600');
-            this.btnSalvar.classList.replace('hover:bg-cyan-500', 'hover:bg-amber-500');
-            this.btnSalvar.classList.replace('shadow-[0_0_15px_rgba(6,182,212,0.3)]', 'shadow-[0_0_15px_rgba(245,158,11,0.3)]');
-            
-            // Ativa o Floating Label
-            document.querySelectorAll('.input-dynamic').forEach(input => input.classList.add('has-value'));
-
-            this.form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            aplicarModoEdicao(this.botaoSalvar, 'Alterar Registro');
+            marcarRotulosFlutuantes(true);
+            this.formulario.scrollIntoView({ behavior: 'smooth', block: 'start' });
             this.abrirPecas(id, modelo);
         }
 
         private limparFormulario(): void {
-            this.form.reset();
+            this.formulario.reset();
             this.idAtual = null;
 
-            // Retorna ao visual padrão de Inserção
-            this.btnSalvar.innerText = "Salvar Equipamento";
-            this.btnSalvar.classList.replace('bg-amber-600', 'bg-cyan-600');
-            this.btnSalvar.classList.replace('hover:bg-amber-500', 'hover:bg-cyan-500');
-            this.btnSalvar.classList.replace('shadow-[0_0_15px_rgba(245,158,11,0.3)]', 'shadow-[0_0_15px_rgba(6,182,212,0.3)]');
-
-            document.querySelectorAll('.input-dynamic').forEach(input => input.classList.remove('has-value'));
+            aplicarModoInsercao(this.botaoSalvar, 'Salvar Equipamento');
+            marcarRotulosFlutuantes(false);
             document.getElementById('secao-pecas')?.classList.add('hidden');
             this.fecharPartSurfer();
             this.pecas = [];
         }
 
-        // ==========================================
-        // PEÇAS DO MODELO
-        // ==========================================
-        private iniciarEventosPecas(): void {
-            document.getElementById('btn-add-peca')?.addEventListener('click', () => this.adicionarPecaDoFormulario());
-            document.getElementById('peca-pn')?.addEventListener('keydown', (e) => {
-                if ((e as KeyboardEvent).key === 'Enter') { e.preventDefault(); this.adicionarPecaDoFormulario(); }
-            });
-            document.getElementById('btn-importar-pecas')?.addEventListener('click', () => this.importarLista());
-            document.getElementById('btn-salvar-pecas')?.addEventListener('click', () => this.salvarPecas());
-            document.getElementById('btn-partsurfer')?.addEventListener('click', () => this.buscarPartSurfer());
-            document.getElementById('ps-fechar')?.addEventListener('click', () => this.fecharPartSurfer());
-            document.getElementById('ps-aplicar')?.addEventListener('click', () => this.aplicarPartSurfer());
-            document.getElementById('ps-marcar-todas')?.addEventListener('click', () => this.marcarCandidatas(true));
-            document.getElementById('ps-desmarcar')?.addEventListener('click', () => this.marcarCandidatas(false));
-            document.getElementById('ps-filtro')?.addEventListener('input', () => this.desenharCandidatas());
-        }
+        private async abrirPecas(id: number, modelo: string): Promise<void> {
+            obterElemento('pecas-modelo-nome').innerText = modelo;
+            document.getElementById('secao-pecas')?.classList.remove('hidden');
+            this.pecas = [];
+            this.fecharPartSurfer();
+            this.desenharPecas();
 
-        // ==========================================
-        // CONSULTA AUTOMÁTICA AO HP PARTSURFER
-        // ==========================================
-        private async buscarPartSurfer(): Promise<void> {
-            if (!this.idAtual) { return; }
-            const id = this.idAtual;
-            const btn = document.getElementById('btn-partsurfer') as HTMLButtonElement;
-            const rotulo = btn.innerText;
-            btn.disabled = true;
-            btn.innerText = 'Consultando...';
             try {
-                const resp = await fetch(`/api/modelo-equipamento/${id}/partsurfer/`, { method: 'POST' });
-                const res = await resp.json();
-                if (res.status !== 'sucesso') { alert(res.mensagem); return; }
-                if (this.idAtual !== id) { return; }
-                // O que já está na lista local (mesmo sem salvar) vem marcado
-                const locais = new Set(this.pecas.map(p => p.part_number));
-                this.candidatas = res.dados.map((c: any) => ({ ...c, selecionada: c.selecionada || locais.has(c.part_number) }));
-                this.pecas.forEach(p => {
-                    if (!this.candidatas.some(c => c.part_number === p.part_number)) {
-                        this.candidatas.push({ part_number: p.part_number, descricao: p.descricao, selecionada: true, somente_local: true });
-                    }
-                });
-                (document.getElementById('partsurfer-msg') as HTMLElement).innerText = res.mensagem + ' Marque as que este modelo usa.';
-                (document.getElementById('ps-filtro') as HTMLInputElement).value = '';
-                document.getElementById('painel-partsurfer')?.classList.remove('hidden');
-                this.desenharCandidatas();
-            } catch (e) {
-                alert('Erro ao comunicar com o servidor.');
-            } finally {
-                btn.disabled = false;
-                btn.innerText = rotulo;
+                const resultado = await buscarJson(`/api/modelo-equipamento/pecas/?id_equipamento=${id}`);
+                if (resultado.status === 'sucesso' && this.idAtual === id) {
+                    this.pecas = this.converterPecas(resultado.dados);
+                    this.desenharPecas();
+                }
+            } catch (erro) {
+                console.error('Falha ao carregar peças:', erro);
             }
         }
 
-        private desenharCandidatas(): void {
-            const filtro = (document.getElementById('ps-filtro') as HTMLInputElement).value.trim().toLowerCase();
-            const ul = document.getElementById('ps-lista') as HTMLElement;
-            ul.innerHTML = '';
-            this.candidatas
-                .filter(c => !filtro || c.part_number.toLowerCase().includes(filtro) || c.descricao.toLowerCase().includes(filtro))
-                .forEach(c => {
-                    const li = document.createElement('li');
-                    li.className = 'py-1.5';
-                    li.innerHTML = `<label class="flex items-center gap-3 cursor-pointer">
-                        <input type="checkbox" class="accent-cyan-500" ${c.selecionada ? 'checked' : ''}>
-                        <span class="font-mono text-cyan-400">${escapeHtml(c.part_number)}</span>
-                        <span class="text-slate-300">${escapeHtml(c.descricao)}</span>
-                        ${c.somente_local ? '<span class="text-[10px] text-amber-400">(não veio do PartSurfer)</span>' : ''}
-                    </label>`;
-                    li.querySelector('input')?.addEventListener('change', (e) => {
-                        c.selecionada = (e.target as HTMLInputElement).checked;
+        private converterPecas(dados: PecaModelo[]): PecaModelo[] {
+            return dados.map((peca) => ({ part_number: peca.part_number, descricao: peca.descricao || '' }));
+        }
+
+        private adicionarPeca(partNumber: string, descricao: string): boolean {
+            const chave = partNumber.trim().toUpperCase();
+            if (!chave) return false;
+
+            const descricaoLimpa = descricao.trim();
+            const existente = this.pecas.find((peca) => peca.part_number === chave);
+            if (!existente) {
+                this.pecas.push({ part_number: chave, descricao: descricaoLimpa });
+            } else if (descricaoLimpa) {
+                existente.descricao = descricaoLimpa;
+            }
+            return true;
+        }
+
+        private adicionarPecaDoFormulario(): void {
+            const campoPn = obterElemento<HTMLInputElement>('peca-pn');
+            const campoDescricao = obterElemento<HTMLInputElement>('peca-descricao');
+
+            if (!this.adicionarPeca(campoPn.value, campoDescricao.value)) {
+                alert('Informe o Part Number da peça.');
+                return;
+            }
+            [campoPn, campoDescricao].forEach((campo) => {
+                campo.value = '';
+                campo.classList.remove('has-value');
+            });
+            campoPn.focus();
+            this.desenharPecas();
+        }
+
+        private importarLista(): void {
+            const areaDeTexto = obterElemento<HTMLTextAreaElement>('peca-colar');
+            let importadas = 0;
+
+            areaDeTexto.value.split(/\r?\n/).forEach((linha) => {
+                const [partNumber, ...resto] = linha.split(/[;\t]/);
+                if (this.adicionarPeca(partNumber || '', resto.join(' ').trim())) importadas++;
+            });
+
+            areaDeTexto.value = '';
+            this.desenharPecas();
+            if (importadas === 0) alert('Nenhuma linha válida encontrada.');
+        }
+
+        private desenharPecas(): void {
+            const lista = obterElemento('lista-pecas');
+            lista.innerHTML = '';
+            document.getElementById('pecas-vazio')?.classList.toggle('hidden', this.pecas.length > 0);
+
+            [...this.pecas]
+                .sort((a, b) => a.part_number.localeCompare(b.part_number))
+                .forEach((peca) => {
+                    const item = document.createElement('li');
+                    item.className = 'flex items-center justify-between py-2 gap-3';
+                    item.innerHTML = `<div class="min-w-0"><span class="font-mono text-cyan-400 text-xs">${escapeHtml(peca.part_number)}</span>
+                        <span class="text-slate-300 text-xs ml-3">${escapeHtml(peca.descricao)}</span></div>
+                        <button type="button" class="text-[10px] font-bold uppercase text-rose-400 hover:text-rose-300">Remover</button>`;
+                    item.querySelector('button')?.addEventListener('click', () => {
+                        this.pecas = this.pecas.filter((outra) => outra.part_number !== peca.part_number);
+                        this.desenharPecas();
                     });
-                    ul.appendChild(li);
+                    lista.appendChild(item);
                 });
         }
 
-        private marcarCandidatas(valor: boolean): void {
-            this.candidatas.forEach(c => { c.selecionada = valor; });
+        private async salvarPecas(): Promise<void> {
+            if (!this.idAtual) return;
+
+            try {
+                const resultado = await enviarJson('/api/modelo-equipamento/pecas/', {
+                    id_equipamento: this.idAtual,
+                    pecas: this.pecas,
+                });
+                if (resultado.status !== 'sucesso') {
+                    alert('Erro: ' + resultado.mensagem);
+                    return;
+                }
+                this.pecas = this.converterPecas(resultado.dados);
+                this.desenharPecas();
+                this.carregarModelos();
+                alert(resultado.mensagem);
+            } catch (erro) {
+                alert('Erro ao comunicar com o servidor.');
+            }
+        }
+
+        private async buscarNoPartSurfer(): Promise<void> {
+            if (!this.idAtual) return;
+
+            const id = this.idAtual;
+            const botao = obterElemento<HTMLButtonElement>('btn-partsurfer');
+            const rotuloOriginal = botao.innerText;
+            botao.disabled = true;
+            botao.innerText = 'Consultando...';
+
+            try {
+                const resultado = await requisitarJson(`/api/modelo-equipamento/${id}/partsurfer/`, { method: 'POST' });
+                if (resultado.status !== 'sucesso') {
+                    alert(resultado.mensagem);
+                    return;
+                }
+                if (this.idAtual !== id) return;
+
+                this.candidatas = this.combinarComPecasLocais(resultado.dados);
+                obterElemento('partsurfer-msg').innerText = resultado.mensagem + ' Marque as que este modelo usa.';
+                definirValorDoCampo('ps-filtro', '');
+                document.getElementById('painel-partsurfer')?.classList.remove('hidden');
+                this.desenharCandidatas();
+            } catch (erro) {
+                alert('Erro ao comunicar com o servidor.');
+            } finally {
+                botao.disabled = false;
+                botao.innerText = rotuloOriginal;
+            }
+        }
+
+        private combinarComPecasLocais(vindasDoPartSurfer: CandidataPartSurfer[]): CandidataPartSurfer[] {
+            const locais = new Set(this.pecas.map((peca) => peca.part_number));
+            const candidatas = vindasDoPartSurfer.map((candidata) => ({
+                ...candidata,
+                selecionada: candidata.selecionada || locais.has(candidata.part_number),
+            }));
+
+            this.pecas.forEach((peca) => {
+                if (!candidatas.some((candidata) => candidata.part_number === peca.part_number)) {
+                    candidatas.push({ ...peca, selecionada: true, somente_local: true });
+                }
+            });
+            return candidatas;
+        }
+
+        private desenharCandidatas(): void {
+            const filtro = valorDoCampo('ps-filtro').trim().toLowerCase();
+            const lista = obterElemento('ps-lista');
+            lista.innerHTML = '';
+
+            this.candidatas
+                .filter((candidata) =>
+                    !filtro ||
+                    candidata.part_number.toLowerCase().includes(filtro) ||
+                    candidata.descricao.toLowerCase().includes(filtro)
+                )
+                .forEach((candidata) => {
+                    const item = document.createElement('li');
+                    item.className = 'py-1.5';
+                    item.innerHTML = `<label class="flex items-center gap-3 cursor-pointer">
+                        <input type="checkbox" class="accent-cyan-500" ${candidata.selecionada ? 'checked' : ''}>
+                        <span class="font-mono text-cyan-400">${escapeHtml(candidata.part_number)}</span>
+                        <span class="text-slate-300">${escapeHtml(candidata.descricao)}</span>
+                        ${candidata.somente_local ? '<span class="text-[10px] text-amber-400">(não veio do PartSurfer)</span>' : ''}
+                    </label>`;
+                    item.querySelector('input')?.addEventListener('change', (evento) => {
+                        candidata.selecionada = (evento.target as HTMLInputElement).checked;
+                    });
+                    lista.appendChild(item);
+                });
+        }
+
+        private marcarCandidatas(marcada: boolean): void {
+            this.candidatas.forEach((candidata) => {
+                candidata.selecionada = marcada;
+            });
             this.desenharCandidatas();
         }
 
-        private aplicarPartSurfer(): void {
+        private aplicarSelecaoDoPartSurfer(): void {
             this.pecas = this.candidatas
-                .filter(c => c.selecionada)
-                .map(c => ({ part_number: c.part_number, descricao: c.descricao }));
+                .filter((candidata) => candidata.selecionada)
+                .map((candidata) => ({ part_number: candidata.part_number, descricao: candidata.descricao }));
             this.desenharPecas();
             this.fecharPartSurfer();
         }
@@ -251,107 +368,7 @@
             document.getElementById('painel-partsurfer')?.classList.add('hidden');
             this.candidatas = [];
         }
-
-        private async abrirPecas(id: number, modelo: string): Promise<void> {
-            (document.getElementById('pecas-modelo-nome') as HTMLElement).innerText = modelo;
-            document.getElementById('secao-pecas')?.classList.remove('hidden');
-            this.pecas = [];
-            this.fecharPartSurfer();
-            this.desenharPecas();
-            try {
-                const resp = await fetch(`/api/modelo-equipamento/pecas/?id_equipamento=${id}`);
-                const res = await resp.json();
-                if (res.status === 'sucesso' && this.idAtual === id) {
-                    this.pecas = res.dados.map((p: any) => ({ part_number: p.part_number, descricao: p.descricao || '' }));
-                    this.desenharPecas();
-                }
-            } catch (e) {
-                console.error('Falha ao carregar peças:', e);
-            }
-        }
-
-        private adicionarPeca(pn: string, descricao: string): boolean {
-            const chave = pn.trim().toUpperCase();
-            if (!chave) { return false; }
-            const existente = this.pecas.find(p => p.part_number === chave);
-            if (existente) {
-                if (descricao.trim()) { existente.descricao = descricao.trim(); }
-            } else {
-                this.pecas.push({ part_number: chave, descricao: descricao.trim() });
-            }
-            return true;
-        }
-
-        private adicionarPecaDoFormulario(): void {
-            const pn = document.getElementById('peca-pn') as HTMLInputElement;
-            const desc = document.getElementById('peca-descricao') as HTMLInputElement;
-            if (!this.adicionarPeca(pn.value, desc.value)) {
-                alert('Informe o Part Number da peça.');
-                return;
-            }
-            pn.value = '';
-            desc.value = '';
-            pn.classList.remove('has-value');
-            desc.classList.remove('has-value');
-            pn.focus();
-            this.desenharPecas();
-        }
-
-        private importarLista(): void {
-            const area = document.getElementById('peca-colar') as HTMLTextAreaElement;
-            let qtd = 0;
-            area.value.split(/\r?\n/).forEach(linha => {
-                const [pn, ...resto] = linha.split(/[;\t]/);
-                if (this.adicionarPeca(pn || '', resto.join(' ').trim())) { qtd++; }
-            });
-            area.value = '';
-            this.desenharPecas();
-            if (qtd === 0) { alert('Nenhuma linha válida encontrada.'); }
-        }
-
-        private desenharPecas(): void {
-            const ul = document.getElementById('lista-pecas') as HTMLElement;
-            ul.innerHTML = '';
-            document.getElementById('pecas-vazio')?.classList.toggle('hidden', this.pecas.length > 0);
-            this.pecas.slice().sort((a, b) => a.part_number.localeCompare(b.part_number)).forEach(p => {
-                const li = document.createElement('li');
-                li.className = 'flex items-center justify-between py-2 gap-3';
-                li.innerHTML = `<div class="min-w-0"><span class="font-mono text-cyan-400 text-xs">${escapeHtml(p.part_number)}</span>
-                    <span class="text-slate-300 text-xs ml-3">${escapeHtml(p.descricao)}</span></div>
-                    <button type="button" class="text-[10px] font-bold uppercase text-rose-400 hover:text-rose-300">Remover</button>`;
-                li.querySelector('button')?.addEventListener('click', () => {
-                    this.pecas = this.pecas.filter(x => x.part_number !== p.part_number);
-                    this.desenharPecas();
-                });
-                ul.appendChild(li);
-            });
-        }
-
-        private async salvarPecas(): Promise<void> {
-            if (!this.idAtual) { return; }
-            try {
-                const resp = await fetch('/api/modelo-equipamento/pecas/', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ id_equipamento: this.idAtual, pecas: this.pecas })
-                });
-                const res = await resp.json();
-                if (res.status === 'sucesso') {
-                    this.pecas = res.dados.map((p: any) => ({ part_number: p.part_number, descricao: p.descricao || '' }));
-                    this.desenharPecas();
-                    this.carregarModelos();
-                    alert(res.mensagem);
-                } else {
-                    alert('Erro: ' + res.mensagem);
-                }
-            } catch (e) {
-                alert('Erro ao comunicar com o servidor.');
-            }
-        }
     }
 
-    window.addEventListener('DOMContentLoaded', () => {
-        new G_modeloEquipamento();
-    });
-
+    window.addEventListener('DOMContentLoaded', () => new ModeloEquipamentoUI());
 })();

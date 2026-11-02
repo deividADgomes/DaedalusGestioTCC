@@ -1,208 +1,136 @@
 "use strict";
-/// <reference path="../baseUI.ts" />
 (() => {
-    class G_tecnicoUI extends BaseUI {
+    class TecnicoUI extends BaseUI {
         constructor() {
             super();
+            this.botaoSalvar = obterElemento('btn-salvar-tecnico');
+            this.botaoLimpar = obterElemento('btn-limpar');
+            this.formulario = obterElemento('form-cadastro-tecnico');
+            this.listaTecnicos = obterElemento('lista-tecnicos');
+            this.campoPesquisa = obterElemento('pesquisa-tecnico');
             this.idAtual = null;
-            this.todosTecnicosCache = [];
-            this.empresasCache = [];
-            this.btnSalvar = document.getElementById('btn-salvar-tecnico');
-            this.btnLimpar = document.getElementById('btn-limpar');
-            this.form = document.getElementById('form-cadastro-tecnico');
-            this.listaTecnicos = document.getElementById('lista-tecnicos');
-            this.inputPesquisa = document.getElementById('pesquisa-tecnico');
+            this.tecnicos = [];
+            this.empresas = [];
             this.iniciarEventos();
-            this.verificarPermissoes();
-            this.carregarEmpresasDropdown().then(() => {
-                this.carregarTecnicos();
-            });
+            this.carregarEmpresasNoSelect().then(() => this.carregarTecnicos());
         }
         iniciarEventos() {
-            this.btnSalvar.addEventListener('click', () => this.salvarTecnico());
-            this.btnLimpar.addEventListener('click', () => this.limparFormulario());
-            if (this.inputPesquisa) {
-                this.inputPesquisa.addEventListener('input', () => this.filtrarTecnicos());
-            }
+            this.botaoSalvar.addEventListener('click', () => this.salvarTecnico());
+            this.botaoLimpar.addEventListener('click', () => this.limparFormulario());
+            this.campoPesquisa.addEventListener('input', () => this.filtrarTecnicos());
         }
-        verificarPermissoes() {
-            const cargoUsuarioLogado = "Administrador"; // TODO: Mudar para leitura real do login
-            if (cargoUsuarioLogado === "Funcionário") {
-                const inputs = this.form.querySelectorAll('input, select');
-                inputs.forEach(input => input.disabled = true);
-                this.btnSalvar.style.display = 'none';
-                this.btnLimpar.style.display = 'none';
-            }
-        }
-        // ==========================================
-        // UTILITÁRIOS E FORMATAÇÃO
-        // ==========================================
-        formatarCNPJ(valor) {
-            if (!valor || valor === 'Não informado' || valor === 'Não localizado' || valor === 'Sem CNPJ')
-                return valor;
-            let v = String(valor).replace(/\D/g, ''); // Garante que é string e remove letras
-            if (v.length > 14)
-                v = v.substring(0, 14);
-            v = v.replace(/^(\d{2})(\d)/, '$1.$2');
-            v = v.replace(/^(\d{2})\.(\d{3})(\d)/, '$1.$2.$3');
-            v = v.replace(/\.(\d{3})(\d)/, '.$1/$2');
-            v = v.replace(/(\d{4})(\d)/, '$1-$2');
-            return v;
-        }
-        // ==========================================
-        // COMUNICAÇÃO: CARREGAR EMPRESAS (SELECT)
-        // ==========================================
-        async carregarEmpresasDropdown() {
-            const selectEmpresa = document.getElementById('empresa');
+        async carregarEmpresasNoSelect() {
+            const select = obterElemento('empresa');
             try {
-                const resposta = await fetch('/api/empresa/');
-                const resultado = await resposta.json();
-                if (resultado.status === 'sucesso') {
-                    this.empresasCache = resultado.dados;
-                    selectEmpresa.innerHTML = '<option value="" disabled selected>Selecione a empresa...</option>';
-                    resultado.dados.forEach((emp) => {
-                        const option = document.createElement('option');
-                        option.value = emp.id || emp.id_empresa;
-                        // Formata o CNPJ antes de adicionar ao select
-                        const cnpj = emp.cnpj ? this.formatarCNPJ(emp.cnpj) : "Sem CNPJ";
-                        option.text = emp.razao_social + ' - CNPJ: ' + cnpj;
-                        selectEmpresa.appendChild(option);
-                    });
-                }
-            }
-            catch (error) {
-                console.error("Erro crítico ao carregar empresas para o select", error);
-            }
-        }
-        // ==========================================
-        // COMUNICAÇÃO: SALVAR / ALTERAR (POST)
-        // ==========================================
-        async salvarTecnico() {
-            const nome = document.getElementById('nome').value;
-            const idEmpresa = document.getElementById('empresa').value;
-            if (!nome || !idEmpresa) {
-                alert("Os campos Nome e Empresa Vinculada são obrigatórios!");
-                return;
-            }
-            const dados = {
-                id: this.idAtual,
-                nome: nome,
-                id_empresa: parseInt(idEmpresa)
-            };
-            try {
-                const resposta = await fetch('/api/tecnico/', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(dados)
+                const resultado = await buscarJson('/api/empresa/');
+                if (resultado.status !== 'sucesso')
+                    return;
+                this.empresas = resultado.dados;
+                select.innerHTML = '<option value="" disabled selected>Selecione a empresa...</option>';
+                this.empresas.forEach((empresa) => {
+                    const cnpj = empresa.cnpj ? formatarCnpj(empresa.cnpj) : 'Sem CNPJ';
+                    select.add(new Option(`${empresa.razao_social} - CNPJ: ${cnpj}`, String(empresa.id)));
                 });
-                const resultado = await resposta.json();
-                if (resultado.status === 'sucesso') {
-                    alert(resultado.mensagem);
-                    this.limparFormulario();
-                    this.carregarTecnicos();
-                }
-                else {
-                    alert("Erro: " + resultado.mensagem);
-                }
             }
-            catch (error) {
-                console.error("Falha na requisição:", error);
-                alert("Erro ao comunicar com o servidor.");
+            catch (erro) {
+                console.error('Erro crítico ao carregar empresas para o select', erro);
             }
         }
-        // ==========================================
-        // COMUNICAÇÃO: LISTAR TÉCNICOS (GET)
-        // ==========================================
-        async carregarTecnicos() {
-            this.listaTecnicos.innerHTML = '<p class="text-sm font-medium text-slate-500 uppercase col-span-full text-center py-10">Carregando dados do servidor...</p>';
-            try {
-                const resposta = await fetch('/api/tecnico/');
-                const resultado = await resposta.json();
-                if (resultado.status === 'sucesso') {
-                    this.todosTecnicosCache = resultado.dados;
-                    this.renderizarCards(this.todosTecnicosCache);
-                }
-                else {
-                    this.listaTecnicos.innerHTML = `<p class="text-sm font-bold text-red-500 col-span-full text-center py-10">Erro do Servidor: ${resultado.mensagem}</p>`;
-                }
-            }
-            catch (error) {
-                this.listaTecnicos.innerHTML = '<p class="text-sm font-bold text-red-500 col-span-full text-center py-10">Erro crítico ao tentar conectar com o servidor.</p>';
-            }
-        }
-        // ==========================================
-        // MANIPULAÇÃO DE INTERFACE E FILTROS
-        // ==========================================
-        renderizarCards(lista) {
-            this.listaTecnicos.innerHTML = '';
-            if (lista.length === 0) {
-                this.listaTecnicos.innerHTML = '<p class="text-sm font-medium text-slate-500 uppercase col-span-full text-center py-10">Nenhum técnico encontrado.</p>';
+        async salvarTecnico() {
+            const nome = valorDoCampo('nome');
+            const idEmpresa = valorDoCampo('empresa');
+            if (!nome || !idEmpresa) {
+                alert('Os campos Nome e Empresa Vinculada são obrigatórios!');
                 return;
             }
-            lista.forEach((tec) => {
-                // Busca blindada: Tenta achar pelo ID. Se não tiver ID, acha pelo Nome!
-                const empresaVinculada = this.empresasCache.find(e => (tec.id_empresa && e.id == tec.id_empresa) ||
-                    (e.razao_social === tec.nome_empresa));
-                // Formata o CNPJ antes de jogar no cartão
-                const cnpjEmpresa = empresaVinculada ? this.formatarCNPJ(empresaVinculada.cnpj) : 'Não localizado';
+            try {
+                const resultado = await enviarJson('/api/tecnico/', {
+                    id: this.idAtual,
+                    nome,
+                    id_empresa: parseInt(idEmpresa),
+                });
+                if (resultado.status !== 'sucesso') {
+                    alert('Erro: ' + resultado.mensagem);
+                    return;
+                }
+                alert(resultado.mensagem);
+                this.limparFormulario();
+                this.carregarTecnicos();
+            }
+            catch (erro) {
+                console.error('Falha na requisição:', erro);
+                alert('Erro ao comunicar com o servidor.');
+            }
+        }
+        async carregarTecnicos() {
+            this.listaTecnicos.innerHTML = htmlMensagemNeutra('Carregando dados do servidor...');
+            try {
+                const resultado = await buscarJson('/api/tecnico/');
+                if (resultado.status !== 'sucesso') {
+                    this.listaTecnicos.innerHTML = htmlMensagemErro(`Erro do Servidor: ${resultado.mensagem}`);
+                    return;
+                }
+                this.tecnicos = resultado.dados;
+                this.renderizarCards(this.tecnicos);
+            }
+            catch (erro) {
+                this.listaTecnicos.innerHTML = htmlMensagemErro('Erro crítico ao tentar conectar com o servidor.');
+            }
+        }
+        localizarEmpresa(tecnico) {
+            return this.empresas.find((empresa) => (tecnico.id_empresa && empresa.id == tecnico.id_empresa) ||
+                empresa.razao_social === tecnico.nome_empresa);
+        }
+        renderizarCards(tecnicos) {
+            this.listaTecnicos.innerHTML = '';
+            if (tecnicos.length === 0) {
+                this.listaTecnicos.innerHTML = htmlMensagemNeutra('Nenhum técnico encontrado.');
+                return;
+            }
+            tecnicos.forEach((tecnico) => {
+                const empresa = this.localizarEmpresa(tecnico);
+                const cnpj = empresa ? formatarCnpj(empresa.cnpj) : 'Não localizado';
                 const card = document.createElement('div');
-                card.className = "bg-[#1e293b] p-5 rounded-xl border border-[#334155] shadow-sm hover:border-cyan-500/50 transition-colors cursor-pointer group";
+                card.className = 'bg-[#1e293b] p-5 rounded-xl border border-[#334155] shadow-sm hover:border-cyan-500/50 transition-colors cursor-pointer group';
                 card.innerHTML = `
                     <div class="flex justify-between items-start mb-2">
                         <span class="text-xs font-bold text-emerald-400 uppercase tracking-wider">Técnico de Campo</span>
-                        <span class="text-[10px] text-slate-500 font-mono">ID: ${tec.id}</span>
+                        <span class="text-[10px] text-slate-500 font-mono">ID: ${tecnico.id}</span>
                     </div>
-                    <h3 class="text-base font-bold text-slate-200 group-hover:text-cyan-400 transition-colors">${tec.nome}</h3>
-                    <p class="text-xs text-slate-400 mt-1">Empresa: <span class="text-slate-300 font-medium">${tec.nome_empresa || 'Não informada'}</span></p>
-                    
-                    <p class="text-xs text-slate-400 mt-1">CNPJ: <span class="text-slate-300 font-medium">${cnpjEmpresa}</span></p>
-                    
+                    <h3 class="text-base font-bold text-slate-200 group-hover:text-cyan-400 transition-colors">${escapeHtml(tecnico.nome)}</h3>
+                    <p class="text-xs text-slate-400 mt-1">Empresa: <span class="text-slate-300 font-medium">${escapeHtml(tecnico.nome_empresa || 'Não informada')}</span></p>
+                    <p class="text-xs text-slate-400 mt-1">CNPJ: <span class="text-slate-300 font-medium">${cnpj}</span></p>
                     <div class="mt-4 pt-3 border-t border-[#334155]/50 flex justify-end">
                         <span class="text-[10px] text-slate-500 uppercase font-bold tracking-widest group-hover:text-cyan-500 transition-colors">Duplo clique para editar</span>
                     </div>
                 `;
                 card.addEventListener('dblclick', () => {
-                    const idDaEmpresaParaEditar = tec.id_empresa || (empresaVinculada ? empresaVinculada.id : null);
-                    this.prepararEdicao(tec.id, tec.nome, idDaEmpresaParaEditar);
+                    this.prepararEdicao(tecnico.id, tecnico.nome, tecnico.id_empresa || empresa?.id || null);
                 });
                 this.listaTecnicos.appendChild(card);
             });
         }
         filtrarTecnicos() {
-            const termoPesquisa = this.inputPesquisa.value.toLowerCase();
-            const listaFiltrada = this.todosTecnicosCache.filter(tec => tec.nome.toLowerCase().includes(termoPesquisa) ||
-                (tec.nome_empresa && tec.nome_empresa.toLowerCase().includes(termoPesquisa)));
-            this.renderizarCards(listaFiltrada);
+            const termo = this.campoPesquisa.value.toLowerCase();
+            const filtrados = this.tecnicos.filter((tecnico) => tecnico.nome.toLowerCase().includes(termo) ||
+                (tecnico.nome_empresa && tecnico.nome_empresa.toLowerCase().includes(termo)));
+            this.renderizarCards(filtrados);
         }
-        prepararEdicao(id, nome, id_empresa) {
-            const cargoUsuarioLogado = "Administrador"; // TODO: Mudar para leitura real
-            if (cargoUsuarioLogado === "Funcionário") {
-                alert("Você não tem permissão para alterar dados de técnicos.");
-                return;
-            }
+        prepararEdicao(id, nome, idEmpresa) {
             this.idAtual = id;
-            document.getElementById('nome').value = nome;
-            if (id_empresa) {
-                document.getElementById('empresa').value = id_empresa.toString();
-            }
-            this.btnSalvar.innerText = "Alterar Registro";
-            this.btnSalvar.classList.replace('bg-cyan-600', 'bg-amber-600');
-            this.btnSalvar.classList.replace('hover:bg-cyan-500', 'hover:bg-amber-500');
-            this.btnSalvar.classList.replace('shadow-[0_0_15px_rgba(6,182,212,0.3)]', 'shadow-[0_0_15px_rgba(245,158,11,0.3)]');
-            document.querySelectorAll('.input-dynamic').forEach(input => input.classList.add('has-value'));
-            this.form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            definirValorDoCampo('nome', nome);
+            if (idEmpresa)
+                definirValorDoCampo('empresa', idEmpresa.toString());
+            aplicarModoEdicao(this.botaoSalvar, 'Alterar Registro');
+            marcarRotulosFlutuantes(true);
+            this.formulario.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
         limparFormulario() {
-            this.form.reset();
+            this.formulario.reset();
             this.idAtual = null;
-            this.btnSalvar.innerText = "Salvar Técnico";
-            this.btnSalvar.classList.replace('bg-amber-600', 'bg-cyan-600');
-            this.btnSalvar.classList.replace('hover:bg-amber-500', 'hover:bg-cyan-500');
-            this.btnSalvar.classList.replace('shadow-[0_0_15px_rgba(245,158,11,0.3)]', 'shadow-[0_0_15px_rgba(6,182,212,0.3)]');
-            document.querySelectorAll('.input-dynamic').forEach(input => input.classList.remove('has-value'));
+            aplicarModoInsercao(this.botaoSalvar, 'Salvar Técnico');
+            marcarRotulosFlutuantes(false);
         }
     }
-    window.addEventListener('DOMContentLoaded', () => {
-        new G_tecnicoUI();
-    });
+    window.addEventListener('DOMContentLoaded', () => new TecnicoUI());
 })();

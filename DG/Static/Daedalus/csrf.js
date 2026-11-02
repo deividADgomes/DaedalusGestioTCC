@@ -1,5 +1,4 @@
 "use strict";
-// Envia automaticamente o token CSRF do Django em toda requisição fetch que altera dados.
 (() => {
     const originalFetch = window.fetch.bind(window);
     const lerCookie = (nome) => {

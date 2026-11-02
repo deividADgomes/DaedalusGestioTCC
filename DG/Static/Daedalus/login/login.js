@@ -2,89 +2,71 @@
 (() => {
     class LoginUI {
         constructor() {
-            this.form = document.getElementById('form-login');
-            this.btnEntrar = document.getElementById('btn-entrar');
-            this.erroMsg = document.getElementById('msg-erro');
+            this.form = obterElemento('form-login');
+            this.botaoEntrar = obterElemento('btn-entrar');
+            this.mensagemErro = obterElemento('msg-erro');
             this.iniciarEventos();
         }
         iniciarEventos() {
-            this.form.addEventListener('submit', (e) => {
-                e.preventDefault(); // Impede a página de recarregar
+            const formularioRecuperacao = obterElemento('form-recuperar');
+            this.form.addEventListener('submit', (evento) => {
+                evento.preventDefault();
                 this.realizarLogin();
             });
-            // UC09: "Esqueci minha senha" envia e-mail ao administrador, que redefine pela tela de funcionários
-            const formRecuperar = document.getElementById('form-recuperar');
-            document.getElementById('btn-esqueci').addEventListener('click', () => {
-                formRecuperar.classList.toggle('hidden');
+            obterElemento('btn-esqueci').addEventListener('click', () => {
+                formularioRecuperacao.classList.toggle('hidden');
             });
-            formRecuperar.addEventListener('submit', (e) => {
-                e.preventDefault();
+            formularioRecuperacao.addEventListener('submit', (evento) => {
+                evento.preventDefault();
                 this.solicitarRecuperacao();
             });
         }
         async solicitarRecuperacao() {
-            const msg = document.getElementById('msg-recuperar');
-            const matricula = document.getElementById('login-recuperar').value;
-            const email = document.getElementById('email-recuperar').value.trim();
+            const mensagem = obterElemento('msg-recuperar');
             try {
-                const resposta = await fetch('/api/recuperar-senha/', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ login: parseInt(matricula), email: email })
+                const resultado = await enviarJson('/api/recuperar-senha/', {
+                    login: parseInt(valorDoCampo('login-recuperar')),
+                    email: valorDoCampo('email-recuperar').trim(),
                 });
-                const resultado = await resposta.json();
-                msg.innerText = resultado.mensagem;
+                mensagem.innerText = resultado.mensagem;
             }
-            catch (error) {
-                console.error(error);
-                msg.innerText = 'Erro de conexão com o servidor.';
+            catch (erro) {
+                console.error(erro);
+                mensagem.innerText = 'Erro de conexão com o servidor.';
             }
-            msg.classList.remove('hidden');
+            mensagem.classList.remove('hidden');
         }
         async realizarLogin() {
-            const loginInput = document.getElementById('login').value;
-            const senhaInput = document.getElementById('senha').value;
-            if (!loginInput || !senhaInput) {
-                this.mostrarErro("Preencha a matrícula e a senha.");
+            const matricula = valorDoCampo('login');
+            const senha = valorDoCampo('senha');
+            if (!matricula || !senha) {
+                this.mostrarErro('Preencha a matrícula e a senha.');
                 return;
             }
-            // UI Feedback: Desabilita botão enquanto carrega
-            this.btnEntrar.disabled = true;
-            this.btnEntrar.innerText = "AUTENTICANDO...";
-            this.erroMsg.classList.add('hidden');
+            this.botaoEntrar.disabled = true;
+            this.botaoEntrar.innerText = 'AUTENTICANDO...';
+            this.mensagemErro.classList.add('hidden');
             try {
-                const resposta = await fetch('/api/login/', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        login: parseInt(loginInput),
-                        senha: senhaInput
-                    })
-                });
-                const resultado = await resposta.json();
+                const resultado = await enviarJson('/api/login/', { login: parseInt(matricula), senha });
                 if (resultado.status === 'sucesso') {
-                    // Login com sucesso! Redireciona para o Dashboard (ou Home)
-                    // Primeiro acesso: força a troca da senha provisória (RF14)
                     window.location.href = resultado.primeiro_acesso ? '/primeiro-acesso/' : '/principal/';
+                    return;
                 }
-                else {
-                    this.mostrarErro(resultado.mensagem);
-                    this.resetarBotao();
-                }
+                this.mostrarErro(resultado.mensagem);
             }
-            catch (error) {
-                console.error(error);
-                this.mostrarErro("Erro de conexão com o servidor.");
-                this.resetarBotao();
+            catch (erro) {
+                console.error(erro);
+                this.mostrarErro('Erro de conexão com o servidor.');
             }
+            this.resetarBotao();
         }
-        mostrarErro(msg) {
-            this.erroMsg.innerText = msg;
-            this.erroMsg.classList.remove('hidden');
+        mostrarErro(texto) {
+            this.mensagemErro.innerText = texto;
+            this.mensagemErro.classList.remove('hidden');
         }
         resetarBotao() {
-            this.btnEntrar.disabled = false;
-            this.btnEntrar.innerText = "ACESSAR SISTEMA";
+            this.botaoEntrar.disabled = false;
+            this.botaoEntrar.innerText = 'ACESSAR SISTEMA';
         }
     }
     window.addEventListener('DOMContentLoaded', () => new LoginUI());
