@@ -1,0 +1,125 @@
+{% extends 'Daedalus/Base.html' %}
+{% load static %}
+{% block title %}Daedalus - Saída de peças{% endblock %}
+
+{% block header %}
+<div class="flex flex-col justify-center h-full">
+    <h1 class="text-2xl font-bold text-white">Saída de peças</h1>
+    <p class="text-xs text-cyan-500 font-medium tracking-wide uppercase mt-1">Lista de peças enviada ao fiscal para emissão de nota</p>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto w-full space-y-5 pb-10">
+
+    <!-- ============ LISTA ============ -->
+    <section id="vista-lista" class="space-y-4">
+        <div class="flex flex-wrap gap-3 items-center">
+            <input type="search" id="lista-busca" placeholder="Buscar por número, ticket, cliente, destinatário, PN, NF ou rastreio..."
+                   class="flex-1 min-w-[220px] bg-[#1e293b] border border-[#334155] rounded-lg px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500">
+            <select id="lista-status" class="bg-[#1e293b] border border-[#334155] rounded-lg px-3 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-cyan-500">
+                <option value="">Todos os status</option>
+                <option value="rascunho">Rascunho</option>
+                <option value="enviada">Enviada ao fiscal</option>
+                <option value="nota_emitida">Nota emitida</option>
+                <option value="cancelada">Cancelada</option>
+            </select>
+            <button type="button" id="btn-nova-saida" class="px-5 py-2.5 rounded-lg text-sm font-semibold text-white bg-cyan-600 hover:bg-cyan-500 transition-colors">Nova lista</button>
+        </div>
+        <div class="bg-[#1e293b] rounded-xl border border-[#334155] overflow-x-auto">
+            <table class="w-full text-xs">
+                <thead class="text-slate-400 uppercase text-[10px] tracking-wider border-b border-[#334155]">
+                    <tr><th class="text-left px-4 py-3">Número</th><th class="text-left px-4 py-3">Data</th><th class="text-left px-4 py-3">Tickets</th>
+                        <th class="text-left px-4 py-3">Destinatários</th><th class="text-right px-4 py-3">Linhas</th><th class="text-right px-4 py-3">Com NF</th>
+                        <th class="text-left px-4 py-3">Status</th><th class="px-4 py-3"></th></tr>
+                </thead>
+                <tbody id="lista-linhas" class="divide-y divide-[#334155]/60 text-slate-200"></tbody>
+            </table>
+        </div>
+        <p id="lista-vazia" class="hidden text-sm text-slate-500">Nenhuma lista encontrada.</p>
+    </section>
+
+    <!-- ============ EDITOR ============ -->
+    <section id="vista-editor" class="hidden space-y-5">
+        <div class="flex items-center justify-between gap-3">
+            <h2 id="editor-titulo" class="text-lg font-bold text-white">Nova lista</h2>
+            <button type="button" id="btn-voltar" class="text-xs font-semibold text-slate-300 hover:text-cyan-400">&larr; Voltar às listas</button>
+        </div>
+        <div id="editor-banner" class="hidden rounded-xl border px-5 py-3 text-xs"></div>
+
+        <!-- adicionar uma linha (só no rascunho) -->
+        <div id="bloco-adicionar" class="bg-[#1e293b] rounded-xl border border-[#334155] p-5 space-y-4">
+            <h3 class="text-sm font-bold text-slate-300 uppercase tracking-wider">Adicionar peça</h3>
+            <div class="grid grid-cols-2 md:grid-cols-12 gap-3">
+                <div class="md:col-span-2"><label class="rot">Ticket</label><input id="i-ticket" maxlength="30" class="cx"></div>
+                <div class="md:col-span-4"><label class="rot">Cliente</label><input id="i-cliente" maxlength="255" class="cx"></div>
+                <div class="md:col-span-3"><label class="rot">Equip.</label><input id="i-equip" maxlength="255" class="cx"></div>
+                <div class="md:col-span-3"><label class="rot">Dia solic.</label><input id="i-data" type="date" class="cx"></div>
+
+                <div class="md:col-span-3"><label class="rot">PN</label><input id="i-pn" list="dl-pecas" autocomplete="off" maxlength="100" class="cx font-mono uppercase"><datalist id="dl-pecas"></datalist></div>
+                <div class="md:col-span-4"><label class="rot">Peça</label><input id="i-desc" maxlength="500" class="cx"></div>
+                <div class="md:col-span-1"><label class="rot">Qtde</label><input id="i-qtd" type="number" min="1" step="1" value="1" class="cx"></div>
+                <div class="md:col-span-4"><label class="rot">Origem</label>
+                    <select id="i-origem" class="cx"><option value="auto">Automática (catálogo = nosso estoque)</option><option value="estoque">Sai do nosso estoque</option><option value="externa">Não sai do nosso estoque</option></select></div>
+
+                <div class="md:col-span-3"><label class="rot">Dest.</label><input id="i-dest" maxlength="255" class="cx"></div>
+                <div class="md:col-span-2"><label class="rot">Número (telefone)</label><input id="i-tel" maxlength="30" class="cx"></div>
+                <div class="md:col-span-3"><label class="rot">Cidade</label><input id="i-cidade" maxlength="100" class="cx"></div>
+                <div class="md:col-span-1"><label class="rot">UF</label><input id="i-uf" maxlength="2" class="cx uppercase"></div>
+                <div class="md:col-span-3"><label class="rot">Observação</label><input id="i-obs" maxlength="500" class="cx"></div>
+            </div>
+            <p id="i-dica" class="text-[11px] text-slate-400"></p>
+            <div class="flex flex-wrap gap-3">
+                <button type="button" id="btn-add-item" class="px-5 py-2 rounded-md text-xs font-semibold text-white bg-cyan-600 hover:bg-cyan-500 transition-colors">Adicionar à lista</button>
+                <button type="button" id="btn-limpar-destino" class="px-4 py-2 rounded-md text-xs font-semibold text-slate-200 bg-slate-700 hover:bg-slate-600 transition-colors">Limpar ticket e destino</button>
+            </div>
+            <p class="text-[11px] text-slate-500">Depois de adicionar, o ticket, o cliente e o destino ficam preenchidos para você lançar a próxima peça do mesmo chamado.</p>
+
+            <details>
+                <summary class="text-[11px] text-slate-400 cursor-pointer hover:text-cyan-400">Colar linhas da planilha</summary>
+                <p class="text-[11px] text-slate-500 mt-2">Copie as linhas no Excel, na ordem das colunas
+                    <span class="font-mono text-slate-400">Ticket, Cliente, Equip., Peça, QTDE, PN, Dest., Número, Cidade, Estado, Dia Solic., NF, RASTREIO, Observação</span>
+                    e cole aqui (a linha de cabeçalho pode vir junto). PN que está no catálogo sai do nosso estoque; os demais constam só na lista.</p>
+                <textarea id="colar-planilha" rows="4" class="mt-2 w-full bg-slate-900/60 border border-slate-700 rounded-md p-3 text-xs text-slate-200 font-mono outline-none focus:border-cyan-500"></textarea>
+                <button type="button" id="btn-colar" class="mt-2 px-4 py-2 rounded-md text-xs font-semibold text-slate-200 bg-slate-700 hover:bg-slate-600 transition-colors">Importar linhas</button>
+            </details>
+        </div>
+
+        <div class="bg-[#1e293b] rounded-xl border border-[#334155] p-5 space-y-3">
+            <h3 class="text-sm font-bold text-slate-300 uppercase tracking-wider">Peças da lista</h3>
+            <div id="itens-avisos" class="hidden rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-xs text-amber-200"></div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-xs whitespace-nowrap">
+                    <thead class="text-slate-400 uppercase text-[10px] tracking-wider border-b border-[#334155]">
+                        <tr><th class="text-left px-2 py-2">Ticket</th><th class="text-left px-2 py-2">Cliente</th><th class="text-left px-2 py-2">Equip.</th>
+                            <th class="text-left px-2 py-2">Peça</th><th class="text-right px-2 py-2">Qtde</th><th class="text-left px-2 py-2">PN</th>
+                            <th class="text-left px-2 py-2">Dest.</th><th class="text-left px-2 py-2">Número</th><th class="text-left px-2 py-2">Cidade/UF</th>
+                            <th class="text-left px-2 py-2">Dia solic.</th><th class="text-left px-2 py-2">NF</th><th class="text-left px-2 py-2">Rastreio</th>
+                            <th class="text-left px-2 py-2">Observação</th><th class="px-2 py-2"></th></tr>
+                    </thead>
+                    <tbody id="itens-linhas" class="divide-y divide-[#334155]/60 text-slate-200"></tbody>
+                </table>
+            </div>
+            <p id="itens-vazio" class="text-xs text-slate-500">Nenhuma peça na lista ainda.</p>
+            <p class="text-[11px] text-slate-500">Linhas marcadas com <span class="text-amber-300">fora do estoque</span> constam na lista para o fiscal, mas não dão baixa no nosso saldo.</p>
+        </div>
+
+        <div class="bg-[#1e293b] rounded-xl border border-[#334155] p-5">
+            <label class="block text-[10px] uppercase tracking-wider text-slate-400 mb-1">Observação geral para o fiscal (opcional)</label>
+            <textarea id="s-observacao" rows="2" class="w-full bg-[#0f172a] border border-[#334155] rounded-md px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-500"></textarea>
+        </div>
+
+        <div id="editor-acoes" class="flex flex-wrap gap-3"></div>
+    </section>
+</div>
+<style>
+    #vista-editor .rot { display:block; font-size:10px; text-transform:uppercase; letter-spacing:.05em; color:#94a3b8; margin-bottom:4px; }
+    #vista-editor .cx { width:100%; background:#0f172a; border:1px solid #334155; border-radius:6px; padding:8px 12px; font-size:13px; color:#fff; outline:none; }
+    #vista-editor .cx:focus { border-color:#06b6d4; }
+    #vista-editor .cx-tabela { background:#0f172a; border:1px solid #334155; border-radius:4px; padding:3px 6px; font-size:12px; color:#fff; width:130px; }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'Daedalus/Saidas/saidas.js' %}" defer></script>
+{% endblock %}

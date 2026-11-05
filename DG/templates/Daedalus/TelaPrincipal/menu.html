@@ -1,0 +1,79 @@
+{% extends 'Daedalus/Base.html' %}
+{% load static %}
+
+{% block title %}Daedalus Gestio - Menu principal{% endblock %}
+
+{% block header %}
+<div>
+    <h1 class="text-xl md:text-2xl font-bold text-white"><span id="saudacao">Olá</span>{% if primeiro_nome %}, {{ primeiro_nome }}{% endif %}</h1>
+    <p class="text-xs text-cyan-500 font-medium tracking-wide uppercase mt-1">Menu principal · escolha o que deseja fazer</p>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="flex-1 overflow-y-auto p-4 md:p-8">
+    <div class="max-w-7xl mx-auto w-full grid grid-cols-1 xl:grid-cols-3 gap-6 pb-10">
+
+        <div class="xl:col-span-2 flex flex-col gap-6">
+
+            <section class="bg-[#1e293b] border border-[#334155] rounded-xl p-5">
+                <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-4">Operação</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {% include 'Daedalus/partials/menu_card.html' with url_name='triagem' titulo='Triagem' desc='Registrar a análise de um equipamento' icon='M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' %}
+                    {% include 'Daedalus/partials/menu_card.html' with url_name='pesquisa' titulo='Pesquisar' desc='Buscar e abrir triagens' icon='M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z' %}
+                    {% include 'Daedalus/partials/menu_card.html' with url_name='serie' titulo='Linha do tempo' desc='Tudo o que já passou por um número de série' icon='M12 8v4l3 3M21 12a9 9 0 11-18 0 9 9 0 0118 0z' %}
+                    {% include 'Daedalus/partials/menu_card.html' with url_name='dashboard' titulo='Dashboard' desc='Indicadores por período' icon='M4 20V10m6 10V4m6 16v-7m4 7H2' %}
+                    {% include 'Daedalus/partials/menu_card.html' with url_name='gerenciarRFB' titulo='Chamados RFB' desc='SLA, pausas e exportação CSV' icon='M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4' %}
+                </div>
+            </section>
+
+            <section class="bg-[#1e293b] border border-[#334155] rounded-xl p-5">
+                <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-4">Orçamentos</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {% include 'Daedalus/partials/menu_card.html' with url_name='emissaoLaudos' titulo='Emitir laudo' desc='Laudo e orçamento em Word' icon='M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z' %}
+                    {% include 'Daedalus/partials/menu_card.html' with url_name='pesquisaLaudos' titulo='Pesquisa de laudos' desc='Status, valores, edição e Word' icon='M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z' %}
+                    {% include 'Daedalus/partials/menu_card.html' with url_name='estatisticasLaudos' titulo='Estatísticas' desc='Aprovação e peças mais orçadas' icon='M4 20V10m6 10V4m6 16v-7m4 7H2' %}
+                </div>
+            </section>
+
+            <section class="bg-[#1e293b] border border-[#334155] rounded-xl p-5">
+                <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-4">Estoque</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {% include 'Daedalus/partials/menu_card.html' with url_name='estoque' titulo='Estoque de peças' desc='Saldo, entradas, saídas e estoque mínimo' icon='M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4' %}
+                    {% include 'Daedalus/partials/menu_card.html' with url_name='saidas' titulo='Saída de peças' desc='Lista enviada ao fiscal, NF e rastreio' icon='M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4' %}
+                </div>
+            </section>
+
+            <section class="bg-[#1e293b] border border-[#334155] rounded-xl p-5">
+                <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-4">Cadastros</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {% include 'Daedalus/partials/menu_card.html' with url_name='gerenciarEmpresa' titulo='Empresas' desc='Prestadora, cliente e fornecedor' icon='M3 21h18M5 21V7l7-4 7 4v14M9 21v-6h6v6' %}
+                    {% include 'Daedalus/partials/menu_card.html' with url_name='gerenciarTecnico' titulo='Técnicos' desc='Técnicos por empresa' icon='M14.7 6.3a4 4 0 00-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 005.4-5.4l-2.5 2.5-2.5-.5-.5-2.5 2.5-2.5z' %}
+                    {% include 'Daedalus/partials/menu_card.html' with url_name='gerenciarFuncionario' titulo='Funcionários' desc='Cargos, senhas e e-mail' icon='M16 11a4 4 0 10-8 0 4 4 0 008 0zM4 21a8 8 0 0116 0' %}
+                    {% include 'Daedalus/partials/menu_card.html' with url_name='gerenciarModeloEquipamento' titulo='Modelos e peças' desc='Tipo, marca, PartSurfer e cotações' icon='M21 8l-9-5-9 5v8l9 5 9-5V8zM3 8l9 5 9-5M12 13v8' %}
+                    {% if request.session.funcionario_cargo == 'Administrador' or request.session.funcionario_cargo == 'Gestor' %}
+                    {% include 'Daedalus/partials/menu_card.html' with url_name='auditoria' titulo='Auditoria' desc='Quem gravou ou excluiu cadastros' icon='M9 12l2 2 4-4m5.6-2.4A12 12 0 0112 3a12 12 0 01-8.6 3.6A12 12 0 003 12c0 5.2 3.4 9.6 9 11 5.6-1.4 9-5.8 9-11 0-1.5-.2-2.9-.4-4.4z' %}
+                    {% endif %}
+                </div>
+            </section>
+        </div>
+
+        <aside class="flex flex-col gap-6">
+            <section class="bg-[#1e293b] border border-[#334155] rounded-xl p-5">
+                <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">Laudos recentes</h2>
+                <div id="laudos-recentes" class="text-sm text-slate-500">Carregando...</div>
+                <a href="{% url 'pesquisaLaudos' %}" class="block mt-3 text-xs text-cyan-400 hover:text-cyan-300">Ver todos os laudos →</a>
+            </section>
+
+            <section class="bg-[#1e293b] border border-[#334155] rounded-xl p-5">
+                <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">Rascunhos de laudos</h2>
+                <p id="resumo-rascunhos" class="text-sm text-slate-500">Carregando...</p>
+            </section>
+        </aside>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'Daedalus/TelaPrincipal/menu.js' %}" defer></script>
+{% endblock %}

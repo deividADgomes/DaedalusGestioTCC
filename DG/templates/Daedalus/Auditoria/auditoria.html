@@ -1,0 +1,31 @@
+{% extends 'Daedalus/Base.html' %}
+{% load static %}
+{% block title %}Daedalus - Auditoria{% endblock %}
+
+{% block header %}
+<div class="flex flex-col justify-center h-full">
+    <h1 class="text-2xl font-bold text-white">Auditoria</h1>
+    <p class="text-xs text-cyan-500 font-medium tracking-wide uppercase mt-1">Quem gravou ou excluiu cadastros</p>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto w-full space-y-4 pb-10">
+    <input type="search" id="auditoria-busca" placeholder="Filtrar por usuário, ação, cadastro ou texto..."
+           class="w-full bg-[#1e293b] border border-[#334155] rounded-lg px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500">
+    <div class="bg-[#1e293b] rounded-xl border border-[#334155] overflow-x-auto">
+        <table class="w-full text-xs">
+            <thead class="text-slate-400 uppercase text-[10px] tracking-wider border-b border-[#334155]">
+                <tr><th class="text-left px-4 py-3">Quando</th><th class="text-left px-4 py-3">Quem</th><th class="text-left px-4 py-3">Ação</th><th class="text-left px-4 py-3">Cadastro</th><th class="text-left px-4 py-3">Detalhe</th></tr>
+            </thead>
+            <tbody id="auditoria-linhas" class="divide-y divide-[#334155]/60 text-slate-200"></tbody>
+        </table>
+    </div>
+    <p id="auditoria-vazio" class="hidden text-sm text-slate-500">Nenhum registro encontrado.</p>
+    <p class="text-[11px] text-slate-500">Mostra os 300 registros mais recentes. Senhas e dados pessoais não são guardados aqui.</p>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'Daedalus/Auditoria/auditoria.js' %}" defer></script>
+{% endblock %}

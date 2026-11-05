@@ -1,0 +1,150 @@
+{% extends 'Daedalus/Base.html' %}
+{% load static %}
+
+{% block title %}Daedalus Gestio - Emissão de Laudos{% endblock %}
+
+{% block header %}
+<div>
+    <h1 class="text-2xl font-bold text-white">Emissão de Laudos</h1>
+    <p class="text-xs text-cyan-500 font-medium tracking-wide uppercase mt-1" id="sub-emissao">Laudo e orçamento de assistência técnica</p>
+</div>
+{% endblock %}
+
+{% block content %}
+{{ precificacao|json_script:"precificacao-data" }}
+<div class="flex-1 overflow-y-auto p-4 md:p-8">
+    <div class="max-w-5xl mx-auto w-full flex flex-col gap-6 pb-16">
+
+        <div id="aviso-status" class="hidden rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-300 text-sm px-4 py-3"></div>
+
+        <section class="bg-[#1e293b] p-5 rounded-xl border border-[#334155]">
+            <h2 class="text-sm font-bold text-slate-100 mb-3">Começar a partir de uma triagem</h2>
+            <div class="flex gap-3">
+                <input type="text" id="ticket-busca" inputmode="numeric" placeholder="Nº do ticket" class="w-48 bg-[#0f172a] border border-[#334155] rounded-lg py-2 px-3 text-sm text-slate-200 outline-none focus:border-cyan-500">
+                <button type="button" id="btn-ticket" class="px-4 py-2 rounded-lg text-xs font-semibold text-white bg-cyan-600 hover:bg-cyan-500">Preencher</button>
+            </div>
+        </section>
+
+        <form id="form-laudo" class="flex flex-col gap-6" autocomplete="off">
+            <section class="bg-[#1e293b] p-5 rounded-xl border border-[#334155]">
+                <h2 class="text-sm font-bold text-slate-100 mb-4">Dados do cliente</h2>
+                <div class="grid grid-cols-1 md:grid-cols-6 gap-4">
+                    <label class="campo md:col-span-6">Cliente *<input name="cliente_nome" maxlength="255" required></label>
+                    <label class="campo md:col-span-3">Responsável<input name="cliente_responsavel" maxlength="255"></label>
+                    <label class="campo md:col-span-3">Telefone<input name="cliente_telefone" maxlength="30"></label>
+                    <label class="campo md:col-span-6">E-mail<input name="cliente_email" type="email" maxlength="255"></label>
+                    <label class="campo md:col-span-1">UF
+                        <select name="cliente_uf" id="cliente_uf"><option value="">—</option><option value="AC">AC</option><option value="AL">AL</option><option value="AP">AP</option><option value="AM">AM</option><option value="BA">BA</option><option value="CE">CE</option><option value="DF">DF</option><option value="ES">ES</option><option value="GO">GO</option><option value="MA">MA</option><option value="MT">MT</option><option value="MS">MS</option><option value="MG">MG</option><option value="PA">PA</option><option value="PB">PB</option><option value="PR">PR</option><option value="PE">PE</option><option value="PI">PI</option><option value="RJ">RJ</option><option value="RN">RN</option><option value="RS">RS</option><option value="RO">RO</option><option value="RR">RR</option><option value="SC">SC</option><option value="SP">SP</option><option value="SE">SE</option><option value="TO">TO</option></select>
+                    </label>
+                    <label class="campo md:col-span-5">Cidade
+                        <select name="cliente_cidade" id="cliente_cidade" disabled><option value="">Selecione a UF primeiro</option></select>
+                    </label>
+                    <label class="campo md:col-span-4">Endereço<input name="cliente_endereco" maxlength="255"></label>
+                    <label class="campo md:col-span-2">CEP<input name="cliente_cep" maxlength="10"></label>
+                    <label class="campo md:col-span-6">Complemento<input name="cliente_complemento" maxlength="255"></label>
+                </div>
+            </section>
+
+            <section class="bg-[#1e293b] p-5 rounded-xl border border-[#334155]">
+                <h2 class="text-sm font-bold text-slate-100 mb-4">Equipamento</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <label class="campo md:col-span-2">Modelo cadastrado (preenche tipo, marca e modelo e traz as peças)
+                        <select id="sel-modelo"><option value="">— Escolher modelo —</option></select>
+                    </label>
+                    <label class="campo">Tipo<input name="equip_tipo" maxlength="100" placeholder="Notebook, Desktop..."></label>
+                    <label class="campo">Marca<input name="equip_marca" maxlength="100"></label>
+                    <label class="campo">Modelo *<input name="equip_modelo" maxlength="150" required></label>
+                    <label class="campo">Nº de série<input name="equip_sn" maxlength="100"></label>
+                    <label class="campo md:col-span-2">Motivo / problema do equipamento<textarea name="motivo_problema" rows="3" maxlength="5000"></textarea></label>
+                    <label class="campo md:col-span-2">Análise técnica<textarea name="analise" rows="4" maxlength="5000"></textarea></label>
+                </div>
+            </section>
+
+            <section class="bg-[#1e293b] p-5 rounded-xl border border-[#334155]">
+                <div class="flex flex-wrap items-center justify-between gap-3 mb-2">
+                    <h2 class="text-sm font-bold text-slate-100">Orçamento (peças)</h2>
+                    <div class="flex flex-wrap gap-2">
+                        <select id="sel-peca" class="bg-[#0f172a] border border-[#334155] rounded-lg py-2 px-3 text-xs text-slate-200 outline-none max-w-[16rem]"><option value="">Peça do modelo...</option></select>
+                        <button type="button" id="btn-add-peca" class="px-3 py-2 rounded-lg text-xs font-semibold text-cyan-300 bg-slate-800 hover:bg-slate-700">Adicionar</button>
+                        <button type="button" id="btn-add-avulso" class="px-3 py-2 rounded-lg text-xs font-semibold text-slate-300 bg-slate-800 hover:bg-slate-700">+ Item avulso</button>
+                    </div>
+                </div>
+                <label class="flex items-start gap-2 text-xs text-slate-300 mb-2 cursor-pointer">
+                    <input type="checkbox" id="chk-regra" name="aplicar_regra" checked class="mt-0.5 accent-cyan-500">
+                    <span>Aplicar a regra de preço. <span class="text-slate-500">Desmarque nos casos em que o valor não segue a regra: o valor digitado em cada peça passa a ser o valor cheio cobrado.</span></span>
+                </label>
+                <p id="regra-preco" class="text-[11px] text-slate-500 mb-3"></p>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-xs">
+                        <thead class="text-slate-400 uppercase"><tr>
+                            <th class="px-2 py-2">Peça</th><th class="px-2 py-2">Descrição</th><th class="px-2 py-2">PN</th>
+                            <th class="px-2 py-2 w-16">Qtd</th><th class="px-2 py-2 w-28" id="th-base">Valor da peça (R$)</th>
+                            <th class="px-2 py-2 text-right" id="th-cobrado">Valor c/ margem</th><th class="px-2 py-2 text-right">Subtotal</th><th></th>
+                        </tr></thead>
+                        <tbody id="itens-laudo"></tbody>
+                    </table>
+                </div>
+                <p class="text-right text-sm text-slate-300 mt-4">Valor total do reparo: <strong id="total-laudo" class="text-emerald-400 text-base">R$ 0,00</strong></p>
+            </section>
+
+            <section class="bg-[#1e293b] p-5 rounded-xl border border-[#334155]">
+                <h2 class="text-sm font-bold text-slate-100 mb-4">Disponibilidade, prazo e responsáveis</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <label class="campo">Disponibilidade das peças
+                        <select name="disponibilidade"><option value="">Não informado</option><option value="disponivel">Disponível</option><option value="indisponivel">Indisponível</option></select>
+                    </label>
+                    <label class="campo">Prazo estimado<input name="prazo_estimado" maxlength="100" placeholder="Ex.: 5 dias úteis"></label>
+                    <label class="campo md:col-span-2">Engenheiro / técnico responsável
+                        <select id="sel-tecnico"><option value="">Selecione o técnico...</option><option value="__outro__">Outro (digitar manualmente)</option></select>
+                        <input name="tecnico_responsavel" id="tecnico_manual" maxlength="255" placeholder="Digite o nome do técnico" class="hidden">
+                    </label>
+                    <label class="campo">Analista responsável (seu usuário)<input name="analista_nome" id="analista_nome" readonly value="{{ request.funcionario_nome|default:'' }}"></label>
+                    <label class="campo">E-mail do analista (do seu cadastro)<input name="analista_email" id="analista_email" readonly value="{{ request.funcionario_email|default:'' }}"></label>
+                    <label class="campo">Ticket<input name="ticket" maxlength="50"></label>
+                    <div class="text-[11px] text-slate-500 self-end pb-2">A data de emissão é a do dia em que o laudo for emitido, e a validade é de <span id="validade-dias">15</span> dias corridos, contando o dia da emissão como o dia 1.</div>
+                </div>
+                <p id="aviso-sem-email" class="hidden mt-3 text-xs text-amber-400">Seu usuário não tem e-mail cadastrado. Você pode salvar o rascunho, mas só conseguirá emitir depois que um Gestor cadastrar seu e-mail em Gerenciar → Funcionário.</p>
+                <p id="info-datas" class="hidden mt-3 text-xs text-slate-400"></p>
+            </section>
+
+            <div id="aviso-cotacoes" class="hidden rounded-xl border border-amber-500/40 bg-amber-500/10 px-5 py-3 text-xs text-amber-200"></div>
+
+            <section class="bg-[#1e293b] p-5 rounded-xl border border-[#334155]">
+                <div class="flex flex-wrap items-center gap-3">
+                    <button type="submit" id="btn-salvar" class="px-5 py-2.5 rounded-lg text-sm font-semibold text-white bg-slate-700 hover:bg-slate-600 disabled:opacity-50">Salvar rascunho</button>
+                    <button type="button" id="btn-emitir" class="px-5 py-2.5 rounded-lg text-sm font-semibold text-white bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50">Emitir e baixar Word</button>
+                    <button type="button" id="btn-alterar" class="hidden px-5 py-2.5 rounded-lg text-sm font-semibold text-white bg-cyan-600 hover:bg-cyan-500">Editar laudo</button>
+                    <button type="button" id="btn-salvar-alt" class="hidden px-5 py-2.5 rounded-lg text-sm font-semibold text-white bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50">Salvar alterações</button>
+                    <button type="button" id="btn-cancelar-alt" class="hidden px-5 py-2.5 rounded-lg text-sm font-semibold text-slate-200 bg-slate-700 hover:bg-slate-600">Cancelar edição</button>
+                    <button type="button" id="btn-baixar" class="hidden px-5 py-2.5 rounded-lg text-sm font-semibold text-cyan-300 bg-slate-800 hover:bg-slate-700">Baixar Word</button>
+                    <button type="button" id="btn-enviar-email" class="hidden px-5 py-2.5 rounded-lg text-sm font-semibold text-cyan-300 bg-slate-800 hover:bg-slate-700">Enviar por e-mail</button>
+                    <span id="acoes-status" class="hidden flex gap-2">
+                        <button type="button" data-status="aprovado" class="btn-status px-4 py-2.5 rounded-lg text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-500">Marcar aprovado</button>
+                        <button type="button" data-status="recusado" class="btn-status px-4 py-2.5 rounded-lg text-sm font-semibold text-white bg-rose-600 hover:bg-rose-500">Marcar recusado</button>
+                        <button type="button" data-status="cancelado" class="btn-status px-4 py-2.5 rounded-lg text-sm font-semibold text-slate-200 bg-slate-700 hover:bg-slate-600">Cancelar laudo</button>
+                    </span>
+                </div>
+            </section>
+        </form>
+
+        <section id="card-historico" class="hidden bg-[#1e293b] p-5 rounded-xl border border-[#334155]">
+            <h2 class="text-sm font-bold text-slate-100 mb-1">Histórico do laudo</h2>
+            <p class="text-[11px] text-slate-500 mb-4">Mudanças de status e alterações feitas depois da emissão, com o motivo informado.</p>
+            <div id="lista-historico" class="flex flex-col gap-3"></div>
+        </section>
+    </div>
+</div>
+<style>
+    .campo { display:flex; flex-direction:column; gap:.25rem; font-size:.625rem; font-weight:700; color:#94a3b8; text-transform:uppercase; letter-spacing:.05em; }
+    .campo input, .campo select, .campo textarea { background:#0f172a; border:1px solid #334155; border-radius:.5rem; padding:.5rem .75rem; font-size:.8125rem; font-weight:400; color:#e2e8f0; text-transform:none; letter-spacing:normal; outline:none; }
+    .campo input:focus, .campo select:focus, .campo textarea:focus { border-color:#06b6d4; }
+    .campo input:disabled, .campo select:disabled, .campo textarea:disabled { opacity:.6; cursor:not-allowed; }
+    .campo input[readonly] { opacity:.75; cursor:default; }
+    #itens-laudo input { width:100%; background:#0f172a; border:1px solid #334155; border-radius:.375rem; padding:.375rem .5rem; color:#e2e8f0; font-size:.75rem; }
+    #itens-laudo input:disabled { opacity:.6; }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'Daedalus/Orcamentos/emissao.js' %}" defer></script>
+{% endblock %}

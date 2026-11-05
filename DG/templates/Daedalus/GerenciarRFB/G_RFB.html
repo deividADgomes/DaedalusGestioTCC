@@ -1,0 +1,603 @@
+{% extends 'Daedalus/Base.html' %}
+{% load static %}
+
+{% block title %}Daedalus Gestio - Chamados RFB{% endblock %}
+
+{# A tela de RFB já tem o sino de alertas de SLA no cabeçalho: o sino geral sai daqui para não duplicar #}
+{% block sino_global %}{% endblock %}
+
+{% block header %}
+<div class="flex justify-between items-center w-full">
+    <h1 class="text-2xl font-bold text-white">Gerenciamento <span class="text-cyan-500">RFB</span></h1>
+
+    <div class="relative">
+        <button type="button" id="btn-notificacoes"
+            class="relative p-2 text-slate-300 hover:text-white transition-colors focus:outline-none"
+            title="Alertas de SLA">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9">
+                </path>
+            </svg>
+            <span id="badge-notificacao"
+                class="absolute top-0 right-0 inline-flex items-center justify-center px-1.5 py-0.5 text-[10px] font-bold leading-none text-white transform translate-x-1/4 -translate-y-1/4 bg-rose-500 rounded-full hidden border-2 border-[#0f172a]">0</span>
+        </button>
+
+        <div id="dropdown-notificacoes"
+            class="hidden absolute right-0 mt-2 w-80 bg-[#1e293b] rounded-lg shadow-[0_10px_25px_-5px_rgba(0,0,0,0.5)] border border-[#334155] z-50 overflow-hidden">
+            <div class="bg-[#0f172a] px-4 py-3 border-b border-[#334155] flex justify-between items-center">
+                <h3 class="text-xs font-bold text-white uppercase tracking-wider">Atenção Logística</h3>
+                <span class="text-[9px] text-amber-400 font-bold bg-amber-900/30 px-2 py-0.5 rounded border border-amber-500/30">
+                    SLA > 80%
+                </span>
+            </div>
+            <div id="lista-notificacoes" class="max-h-72 overflow-y-auto divide-y divide-[#334155]">
+                <!-- O JavaScript vai inserir os avisos aqui -->
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="flex-1 overflow-y-auto p-8">
+    <div class="max-w-7xl mx-auto space-y-8 pb-10">
+
+        <!-- DASHBOARDS GLOBAIS (AGORA SIMÉTRICOS) -->
+        <section class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
+            <div class="bg-[#1e293b] border border-[#334155] rounded-xl p-4 shadow-lg flex flex-col justify-between">
+                <div class="flex justify-between items-start mb-2">
+                    <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Abertos / Andamento</span>
+                    <div class="w-6 h-6 rounded-full bg-blue-500/10 flex items-center justify-center">
+                        <span class="text-blue-400 text-xs font-bold">i</span>
+                    </div>
+                </div>
+                <span class="text-2xl font-black text-white mt-1" id="dash-abertos">--</span>
+            </div>
+
+            <div class="bg-[#1e293b] border border-cyan-500/30 rounded-xl p-4 shadow-lg flex flex-col justify-between">
+                <div class="flex justify-between items-start mb-2">
+                    <span class="text-[10px] font-bold text-cyan-400 uppercase tracking-wider">Previsão (Ativos)</span>
+                    <div class="w-6 h-6 rounded-full bg-cyan-500/10 flex items-center justify-center">
+                        <span class="text-cyan-400 text-xs">✓</span>
+                    </div>
+                </div>
+                <div class="flex items-end gap-2 mt-auto">
+                    <span class="text-2xl font-black text-cyan-400" id="dash-no-prazo">--</span>
+                    <span class="text-xs text-cyan-500/80 font-bold mb-1" id="dash-pct-no-prazo">--</span>
+                </div>
+            </div>
+
+            <div class="bg-[#1e293b] border border-amber-500/30 rounded-xl p-4 shadow-lg flex flex-col justify-between">
+                <div class="flex justify-between items-start mb-2">
+                    <span class="text-[10px] font-bold text-amber-500 uppercase tracking-wider">SLA Em Risco (>80%)</span>
+                    <div class="w-6 h-6 rounded-full bg-amber-500/10 flex items-center justify-center">
+                        <span class="text-amber-500 text-xs">⚠</span>
+                    </div>
+                </div>
+                <span class="text-2xl font-black text-amber-500 mt-1" id="dash-risco">--</span>
+            </div>
+
+            <div class="bg-[#1e293b] border border-rose-500/30 rounded-xl p-4 shadow-lg flex flex-col justify-between">
+                <div class="flex justify-between items-start mb-2">
+                    <span class="text-[10px] font-bold text-rose-500 uppercase tracking-wider">SLA Estourado</span>
+                    <div class="w-6 h-6 rounded-full bg-rose-500/10 flex items-center justify-center">
+                        <span class="text-rose-500 text-xs">!</span>
+                    </div>
+                </div>
+                <span class="text-2xl font-black text-rose-500 mt-1" id="dash-estourado">--</span>
+            </div>
+
+            <div class="bg-[#1e293b] border border-[#334155] rounded-xl p-4 shadow-lg flex flex-col justify-between">
+                <div class="flex justify-between items-start mb-2">
+                    <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Concluídos</span>
+                    <div class="w-6 h-6 rounded-full bg-emerald-500/10 flex items-center justify-center">
+                        <span class="text-emerald-400 text-xs">✓</span>
+                    </div>
+                </div>
+                <span class="text-2xl font-black text-emerald-400 mt-1" id="dash-concluidos">--</span>
+            </div>
+
+            <div class="bg-[#1e293b] border border-[#334155] rounded-xl p-4 shadow-lg flex flex-col justify-between">
+                <div class="flex justify-between items-start mb-2">
+                    <span class="text-[10px] font-bold text-emerald-400 uppercase tracking-wider">Eficiência (Encerrados)</span>
+                    <div class="w-6 h-6 rounded-full bg-emerald-500/10 flex items-center justify-center">
+                        <span class="text-emerald-400 text-xs">🏆</span>
+                    </div>
+                </div>
+                <div class="flex items-end gap-2 mt-auto">
+                    <span class="text-2xl font-black text-white" id="dash-pct-concluidos-no-prazo">--</span>
+                    <span class="text-[10px] text-slate-400 font-bold mb-1">Dentro do SLA</span>
+                </div>
+            </div>
+
+        </section>
+
+        <!-- BOTÃO RELATÓRIO -->
+        <div class="flex justify-end mb-4">
+            <button id="btn-relatorio-fechamento"
+                class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2 px-4 rounded shadow-lg flex items-center gap-2 transition-colors">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z">
+                    </path>
+                </svg>
+                Relatório de Chamados Concluídos
+            </button>
+        </div>
+
+        <!-- SEÇÃO DE APOIO À DECISÃO (SAD) - AÇÕES IMEDIATAS -->
+        <div class="col-span-12 mb-6">
+            <h3 class="text-sm font-bold text-slate-300 mb-4 uppercase tracking-wider border-b border-[#334155] pb-2">
+                Ação Imediata (Painel Logístico)</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="bg-[#0f172a] border border-[#334155] rounded-xl p-4 shadow-sm">
+                    <h4 class="text-xs font-bold text-cyan-400 mb-3 flex items-center gap-2">
+                        <span class="h-2 w-2 rounded-full bg-cyan-500 animate-pulse"></span>
+                        Visitas Agendadas para Hoje
+                    </h4>
+                    <div id="cards-agendados-hoje" class="flex flex-col gap-2 max-h-64 overflow-y-auto pr-2"></div>
+                </div>
+
+                <div class="bg-[#0f172a] border border-[#334155] rounded-xl p-4 shadow-sm">
+                    <h4 class="text-xs font-bold text-amber-400 mb-3 flex items-center gap-2">
+                        <span class="h-2 w-2 rounded-full bg-amber-500"></span>
+                        Chamados em Aberto
+                    </h4>
+                    <div id="cards-chamados-abertos" class="flex flex-col gap-2 max-h-64 overflow-y-auto pr-2"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- GRÁFICOS INTELIGENTES (CHART.JS) -->
+        <section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            <div class="bg-[#1e293b] border border-[#334155] rounded-xl p-5 shadow-lg relative h-64 flex flex-col">
+                <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Proporção (SLA)</h3>
+                <div class="flex-1 relative"><canvas id="graficoSlaStatus"></canvas></div>
+            </div>
+            <div class="bg-[#1e293b] border border-[#334155] rounded-xl p-5 shadow-lg relative h-64 flex flex-col">
+                <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Top 5 Equipamentos</h3>
+                <div class="flex-1 relative"><canvas id="graficoTopEquipamentos"></canvas></div>
+            </div>
+            <div class="bg-[#1e293b] border border-[#334155] rounded-xl p-5 shadow-lg relative h-64 flex flex-col">
+                <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Top 5 Peças Consumidas</h3>
+                <div class="flex-1 relative"><canvas id="graficoTopPecas"></canvas></div>
+            </div>
+            <div class="bg-[#1e293b] border border-[#334155] rounded-xl p-5 shadow-lg relative h-64 flex flex-col">
+                <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Risco Geográfico</h3>
+                <div class="flex-1 relative"><canvas id="graficoGeoRisco"></canvas></div>
+            </div>
+        </section>
+
+        <!-- FORMULÁRIO DE TRIAGEM -->
+        <section class="bg-[#1e293b] rounded-xl border border-[#334155] p-6 shadow-lg relative overflow-hidden"
+            id="secao-formulario">
+            <div id="bloqueio-acesso"
+                class="hidden absolute inset-0 bg-[#0f172a]/80 backdrop-blur-sm z-10 flex flex-col items-center justify-center">
+                <p class="text-sm font-bold text-white uppercase tracking-wider">Acesso Restrito</p>
+                <p class="text-xs text-slate-400">Apenas coordenação e gerência podem registrar ou editar.</p>
+            </div>
+
+            <div class="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
+                <h2 class="text-sm font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
+                    <span class="w-2 h-2 rounded-full bg-cyan-500"></span> Novo Registro de Chamado
+                </h2>
+                <div class="flex gap-3">
+                    <button type="button" id="btn-limpar"
+                        class="px-4 py-2 rounded-md text-xs font-semibold text-slate-300 bg-slate-800 hover:bg-slate-700 transition-colors">Limpar</button>
+                    <button type="button" id="btn-salvar-chamado"
+                        class="px-5 py-2 rounded-md text-xs font-semibold text-white bg-cyan-600 hover:bg-cyan-500 shadow-[0_0_15px_rgba(6,182,212,0.3)] transition-colors">Registrar
+                        Chamado</button>
+                </div>
+            </div>
+
+            <form id="form-cadastro-chamado" class="grid grid-cols-1 md:grid-cols-12 gap-4">
+                <div class="input-group md:col-span-3">
+                    <input type="text" id="ticket" name="ticket" class="input-dynamic" required>
+                    <label class="label-dynamic">Ticket</label>
+                </div>
+                <div class="input-group md:col-span-3">
+                    <input type="datetime-local" id="data_abertura" name="data_abertura"
+                        class="input-dynamic [color-scheme:dark]" required>
+                    <label class="label-dynamic">Data de Abertura</label>
+                </div>
+                <div class="input-group md:col-span-2 relative">
+                    <select id="estado" name="estado" class="input-dynamic appearance-none cursor-pointer pr-10" required>
+                        <option value="" disabled selected></option>
+                        <option value="AC">AC</option><option value="AL">AL</option><option value="AP">AP</option>
+                        <option value="AM">AM</option><option value="BA">BA</option><option value="CE">CE</option>
+                        <option value="DF">DF</option><option value="ES">ES</option><option value="GO">GO</option>
+                        <option value="MA">MA</option><option value="MT">MT</option><option value="MS">MS</option>
+                        <option value="MG">MG</option><option value="PA">PA</option><option value="PB">PB</option>
+                        <option value="PR">PR</option><option value="PE">PE</option><option value="PI">PI</option>
+                        <option value="RJ">RJ</option><option value="RN">RN</option><option value="RS">RS</option>
+                        <option value="RO">RO</option><option value="RR">RR</option><option value="SC">SC</option>
+                        <option value="SP">SP</option><option value="SE">SE</option><option value="TO">TO</option>
+                    </select>
+                    <label class="label-dynamic">Estado (UF)</label>
+                </div>
+                <div class="input-group md:col-span-4 relative">
+                    <select id="cidade" name="cidade" class="input-dynamic appearance-none cursor-pointer pr-10" required disabled></select>
+                    <label class="label-dynamic">Cidade</label>
+                </div>
+                
+                <div class="input-group md:col-span-3 relative">
+                    <select id="analista_responsavel" name="analista_responsavel" class="input-dynamic appearance-none cursor-pointer pr-10" required>
+                        <option value="" disabled selected>Carregando...</option>
+                    </select>
+                    <label class="label-dynamic">Analista Responsável</label>
+                </div>
+
+                <div class="input-group md:col-span-4 relative">
+                    <select id="modelo_equipamento" name="modelo_equipamento" class="input-dynamic appearance-none cursor-pointer pr-10" required>
+                        <option value="" disabled selected></option>
+                    </select>
+                    <label class="label-dynamic">Modelo Equipamento</label>
+                </div>
+                <div class="input-group md:col-span-3">
+                    <input type="text" id="sn" name="sn" class="input-dynamic uppercase" required>
+                    <label class="label-dynamic">Serial Number (SN)</label>
+                </div>
+                <div class="input-group md:col-span-2 relative">
+                    <select id="tipo_chamado" name="tipo_chamado" class="input-dynamic appearance-none cursor-pointer pr-10" required>
+                        <option value="" disabled selected></option>
+                        <option value="Garantia">Garantia</option>
+                        <option value="Orçamento">Orçamento</option>
+                        <option value="Contrato">Contrato</option>
+                        <option value="Cortesia">Cortesia</option>
+                        <option value="Não informado">Não informado</option>
+                    </select>
+                    <label class="label-dynamic">Tipo</label>
+                </div>
+
+                <div class="input-group md:col-span-12">
+                    <input type="text" id="descricao_defeito" name="descricao_defeito" class="input-dynamic" required>
+                    <label class="label-dynamic">Defeito Reportado</label>
+                </div>
+                <div class="input-group md:col-span-12">
+                    <input type="text" id="observacao" name="observacao" class="input-dynamic">
+                    <label class="label-dynamic">Observação Inicial de Andamento (Opcional)</label>
+                </div>
+            </form>
+        </section>
+
+        <!-- BARRA DE PESQUISA, EXPORTAÇÃO E ALTERNADOR DE VISUALIZAÇÃO -->
+        <section class="flex flex-wrap gap-4 items-center bg-[#0f172a]/40 p-2 rounded-xl border border-[#334155]/50 backdrop-blur-sm mt-6">
+            <div class="relative flex-1 min-w-[250px]">
+                <input type="text" id="pesquisa-chamado" placeholder="Buscar por Ticket, SN, Modelo..." class="w-full bg-transparent border-none py-3 pl-4 pr-4 text-sm text-slate-200 focus:ring-0 placeholder:text-slate-500 outline-none">
+            </div>
+            <div class="relative w-full md:w-40 border-t md:border-t-0 md:border-l border-[#334155]/50 md:pl-4">
+                <select id="filtro-tipo" class="w-full bg-transparent border-none py-3 px-4 text-sm text-slate-200 focus:ring-0 outline-none appearance-none cursor-pointer">
+                    <option value="todos" class="bg-[#1e293b]">Qualquer Tipo</option>
+                    <option value="Garantia" class="bg-[#1e293b]">Garantia</option>
+                    <option value="Orçamento" class="bg-[#1e293b]">Orçamento</option>
+                    <option value="Contrato" class="bg-[#1e293b]">Contrato</option>
+                    <option value="Cortesia" class="bg-[#1e293b]">Cortesia</option>
+                </select>
+            </div>
+            <div class="relative w-full md:w-48 border-t md:border-t-0 md:border-l border-[#334155]/50 md:pl-4">
+                <select id="filtro-status" class="w-full bg-transparent border-none py-3 px-4 text-sm text-slate-200 focus:ring-0 outline-none appearance-none cursor-pointer">
+                    <option value="todos" class="bg-[#1e293b]">Todos os Status</option>
+                    <option value="aberto" class="bg-[#1e293b]">Abertos</option>
+                    <option value="andamento" class="bg-[#1e293b]">Em Andamento</option>
+                    <option value="agendado" class="bg-[#1e293b]">Com Visita Agendada</option>
+                    <option value="concluido" class="bg-[#1e293b]">Concluídos</option>
+                    <option value="no_prazo"class="bg-[#1e293b]">SLA: No Prazo</option>
+                    <option value="em_risco" class="bg-[#1e293b]">SLA: Em Risco</option>
+                    <option value="estourado" class="bg-[#1e293b]">SLA: Estourado</option>
+                </select>
+            </div>
+            <div class="relative w-full md:w-36 border-t md:border-t-0 md:border-l border-[#334155]/50 md:pl-4">
+                <select id="filtro-estado" class="w-full bg-transparent border-none py-3 px-4 text-sm text-slate-200 focus:ring-0 outline-none appearance-none cursor-pointer bg-[#1e293b]">
+                    <option value="todos" class="bg-[#1e293b]">Todos Estados</option>
+                        <option value="AC">AC</option><option value="AL">AL</option><option value="AP">AP</option>
+                        <option value="AM">AM</option><option value="BA">BA</option><option value="CE">CE</option>
+                        <option value="DF">DF</option><option value="ES">ES</option><option value="GO">GO</option>
+                        <option value="MA">MA</option><option value="MT">MT</option><option value="MS">MS</option>
+                        <option value="MG">MG</option><option value="PA">PA</option><option value="PB">PB</option>
+                        <option value="PR">PR</option><option value="PE">PE</option><option value="PI">PI</option>
+                        <option value="RJ">RJ</option><option value="RN">RN</option><option value="RS">RS</option>
+                        <option value="RO">RO</option><option value="RR">RR</option><option value="SC">SC</option>
+                        <option value="SP">SP</option><option value="SE">SE</option><option value="TO">TO</option>
+                </select>
+            </div>
+            <div class="relative w-full md:w-44 border-t md:border-t-0 md:border-l border-[#334155]/50 md:pl-4">
+                <select id="filtro-analista" class="w-full bg-transparent border-none py-3 px-4 text-sm text-slate-200 focus:ring-0 outline-none appearance-none cursor-pointer bg-[#1e293b]">
+                    <option value="todos" class="bg-[#1e293b]">Todos Analistas</option>
+                </select>
+            </div>
+            <div class="flex gap-2 border-t md:border-t-0 md:border-l border-[#334155]/50 md:pl-4 w-full md:w-auto" id="container-exportar">
+                <button type="button" id="btn-view-table" class="bg-[#1e293b] text-cyan-400 border border-cyan-500/50 p-2.5 rounded-lg shadow-sm" title="Lista">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"></path></svg>
+                </button>
+                <button type="button" id="btn-view-kanban" class="bg-transparent text-slate-400 hover:text-cyan-400 border border-transparent hover:border-cyan-500/50 p-2.5 rounded-lg transition-colors" title="Kanban">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"></path></svg>
+                </button>
+                <button type="button" id="btn-modelos-rfb" class="hidden bg-slate-800 text-slate-200 border border-[#334155] hover:border-cyan-500/50 hover:text-cyan-400 px-3 rounded-lg transition-colors text-[11px] font-bold uppercase tracking-wider" title="Escolher quais modelos aparecem ao abrir chamados">Modelos do RFB</button>
+                <button type="button" id="btn-exportar" class="bg-indigo-900/40 text-indigo-400 border border-indigo-500/50 hover:bg-indigo-600 hover:text-white p-2.5 rounded-lg transition-colors" title="Exportar CSV">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                </button>
+            </div>
+        </section>
+
+        <!-- VISUALIZAÇÃO EM TABELA -->
+        <section id="table-view" class="bg-[#1e293b] rounded-xl border border-[#334155] shadow-lg mt-6 overflow-hidden">
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="bg-[#0f172a] text-xs uppercase tracking-wider text-slate-400 border-b border-[#334155]">
+                            <th class="px-6 py-4 font-bold">Ticket</th>
+                            <th class="px-6 py-4 font-bold">Local</th>
+                            <th class="px-6 py-4 font-bold">Equipamento</th>
+                            <th class="px-6 py-4 font-bold">SLA</th>
+                            <th class="px-6 py-4 font-bold">Observações</th>
+                            <th class="px-6 py-4 font-bold text-center">Status</th>
+                            <th class="px-4 py-4 font-bold text-center sticky right-0 bg-[#0f172a] z-10">Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tabela-chamados-rfb" class="text-sm divide-y divide-[#334155]/50">
+                        <!-- Os dados serão inseridos dinamicamente aqui via JavaScript -->
+                    </tbody>
+                </table>
+            </div>
+            
+            <div class="bg-[#0f172a] border-t border-[#334155] p-4 flex items-center justify-between">
+                <span id="info-paginacao" class="text-xs text-slate-400 font-medium">Buscando registros...</span>
+                <div class="flex gap-2">
+                    <button id="btn-pagina-anterior" class="px-4 py-2 bg-[#1e293b] border border-[#334155] text-slate-300 rounded hover:bg-[#334155] hover:text-white disabled:opacity-50 disabled:cursor-not-allowed text-xs font-bold transition-colors">Anterior</button>
+                    <button id="btn-pagina-proxima" class="px-4 py-2 bg-[#1e293b] border border-[#334155] text-slate-300 rounded hover:bg-[#334155] hover:text-white disabled:opacity-50 disabled:cursor-not-allowed text-xs font-bold transition-colors">Próxima</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- VISUALIZAÇÃO EM KANBAN -->
+        <section id="kanban-view" class="hidden mt-6">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <!-- Coluna Aberto -->
+                <div class="flex flex-col bg-[#0f172a]/50 border border-[#334155] rounded-xl p-4 min-h-[600px] shadow-inner">
+                    <div class="flex justify-between items-center mb-4 pb-2 border-b border-[#334155]">
+                        <h3 class="font-bold text-blue-400 uppercase tracking-wider text-xs">Aberto</h3>
+                        <span id="kb-count-aberto" class="bg-blue-500/10 text-blue-400 px-2.5 py-0.5 rounded text-[10px] font-bold border border-blue-500/20">0</span>
+                    </div>
+                    <div id="kb-col-aberto" data-status="aberto" class="kanban-col flex-1 overflow-y-auto space-y-3 pr-2 pb-10 transition-colors rounded-lg"></div>
+                </div>
+                
+                <!-- Coluna Em Andamento -->
+                <div class="flex flex-col bg-[#0f172a]/50 border border-[#334155] rounded-xl p-4 min-h-[600px] shadow-inner">
+                    <div class="flex justify-between items-center mb-4 pb-2 border-b border-[#334155]">
+                        <h3 class="font-bold text-amber-400 uppercase tracking-wider text-xs">Em Andamento</h3>
+                        <span id="kb-count-andamento" class="bg-amber-500/10 text-amber-400 px-2.5 py-0.5 rounded text-[10px] font-bold border border-amber-500/20">0</span>
+                    </div>
+                    <div id="kb-col-andamento" data-status="andamento" class="kanban-col flex-1 overflow-y-auto space-y-3 pr-2 pb-10 transition-colors rounded-lg"></div>
+                </div>
+                
+                <!-- Coluna Concluído -->
+                <div class="flex flex-col bg-[#0f172a]/50 border border-[#334155] rounded-xl p-4 min-h-[600px] shadow-inner">
+                    <div class="flex justify-between items-center mb-4 pb-2 border-b border-[#334155]">
+                        <h3 class="font-bold text-emerald-400 uppercase tracking-wider text-xs">Concluído</h3>
+                        <span id="kb-count-concluido" class="bg-emerald-500/10 text-emerald-400 px-2.5 py-0.5 rounded text-[10px] font-bold border border-emerald-500/20">0</span>
+                    </div>
+                    <div id="kb-col-concluido" data-status="concluido" class="kanban-col flex-1 overflow-y-auto space-y-3 pr-2 pb-10 transition-colors rounded-lg"></div>
+                </div>
+            </div>
+        </section>
+
+    </div>
+</div>
+
+<!-- MODAL DE DETALHES -->
+<div id="modal-detalhes-chamado" class="fixed inset-0 bg-[#0f172a]/90 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-[#1e293b] border border-[#334155] rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto relative">
+        <button type="button" class="btn-fechar-detalhes absolute top-4 right-4 text-slate-400 hover:text-white bg-[#0f172a] hover:bg-rose-500 border border-[#334155] hover:border-rose-500 rounded p-1 transition-all z-10">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+        </button>
+        <div class="p-6">
+            <h2 id="detalhe-modal-title" class="text-lg font-bold text-cyan-400 uppercase tracking-wider border-b border-[#334155] pb-3 mb-6">Detalhes do Chamado</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                <div class="space-y-4">
+                    <div class="bg-[#0f172a] p-4 rounded-lg border border-[#334155]">
+                        <h3 class="text-xs text-slate-500 uppercase font-bold mb-1">Status Atual</h3>
+                        <p id="detalhe-status" class="text-sm font-bold text-white uppercase tracking-widest"></p>
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="bg-[#0f172a] p-3 rounded-lg border border-[#334155]">
+                            <h3 class="text-[10px] text-slate-500 uppercase font-bold mb-1">Abertura</h3>
+                            <p id="detalhe-data" class="text-xs text-slate-300"></p>
+                        </div>
+                        <div class="bg-[#0f172a] p-3 rounded-lg border border-[#334155]">
+                            <h3 class="text-[10px] text-slate-500 uppercase font-bold mb-1">Localização</h3>
+                            <p id="detalhe-local" class="text-xs text-slate-300"></p>
+                        </div>
+                    </div>
+                    <div class="bg-[#0f172a] p-4 rounded-lg border border-[#334155]">
+                        <h3 class="text-[10px] text-slate-500 uppercase font-bold mb-1">Equipamento & SN</h3>
+                        <p id="detalhe-equipamento" class="text-sm text-white font-medium"></p>
+                        <p id="detalhe-sn" class="text-xs text-cyan-400 font-mono mt-1"></p>
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="bg-[#0f172a] p-3 rounded-lg border border-[#334155]">
+                            <h3 class="text-[10px] text-slate-500 uppercase font-bold mb-1">Tipo de Chamado</h3>
+                            <p id="detalhe-tipo-chamado" class="text-xs text-slate-300"></p>
+                        </div>
+                        <div class="bg-[#0f172a] p-3 rounded-lg border border-[#334155]">
+                            <h3 class="text-[10px] text-slate-500 uppercase font-bold mb-1">SLA Consumido</h3>
+                            <p id="detalhe-sla" class="text-xs text-amber-400 font-bold"></p>
+                        </div>
+                    </div>
+                </div>
+                <div class="space-y-4">
+                    <div class="bg-[#0f172a] p-4 rounded-lg border border-[#334155] h-full flex flex-col gap-4">
+                        <div>
+                            <h3 class="text-[10px] text-slate-500 uppercase font-bold mb-1 border-b border-[#334155] pb-1">Responsáveis</h3>
+                            <div class="flex gap-4 mt-2">
+                                <div>
+                                    <span class="text-[9px] text-slate-500 block">Analista</span>
+                                    <span id="detalhe-analista" class="text-xs text-cyan-300 font-medium"></span>
+                                </div>
+                                <div>
+                                    <span class="text-[9px] text-slate-500 block">Técnico de Campo</span>
+                                    <span id="detalhe-tecnico" class="text-xs text-indigo-300 font-medium"></span>
+                                </div>
+                            </div>
+                        </div>
+                        <div>
+                            <h3 class="text-[10px] text-slate-500 uppercase font-bold mb-1 border-b border-[#334155] pb-1">Defeito Relatado</h3>
+                            <p id="detalhe-defeito" class="text-xs text-slate-300 mt-2 whitespace-pre-line"></p>
+                        </div>
+                        <div>
+                            <h3 class="text-[10px] text-slate-500 uppercase font-bold mb-1 border-b border-[#334155] pb-1">Observações Operacionais</h3>
+                            <p id="detalhe-observacao" class="text-xs text-slate-400 italic mt-2"></p>
+                        </div>
+                        <div class="mt-auto">
+                            <h3 class="text-[10px] text-slate-500 uppercase font-bold mb-1 border-b border-[#334155] pb-1">Resolução do Caso & Peças</h3>
+                            <p id="detalhe-resolucao" class="text-xs text-emerald-400 mt-2 font-medium"></p>
+                            <p id="detalhe-peca" class="text-xs text-slate-400 mt-1"></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="mt-4">
+                <h3 class="text-sm font-bold text-slate-400 uppercase tracking-wider border-b border-[#334155] pb-2 mb-4 flex items-center gap-2">
+                    <svg class="w-4 h-4 text-cyan-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                    Histórico Logístico
+                </h3>
+                <div id="detalhe-historico-agendamentos" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <!-- Histórico renderizado via JS -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- MODAL DE FINALIZAÇÃO -->
+<div id="modal-modelos-rfb" class="fixed inset-0 bg-[#0f172a]/90 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-[#1e293b] border border-[#334155] rounded-xl shadow-2xl w-full max-w-lg p-6 relative max-h-[90vh] flex flex-col">
+        <button type="button" class="btn-fechar-modal absolute top-4 right-4 text-slate-400 hover:text-rose-500 transition-colors" aria-label="Fechar">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+        </button>
+        <h2 class="text-lg font-bold text-cyan-400 uppercase tracking-wider mb-2">Modelos do RFB</h2>
+        <p class="text-xs text-slate-400 mb-4">São os modelos que aparecem ao abrir um chamado. Retirar um modelo só o esconde da lista: nada é apagado e os chamados antigos continuam.</p>
+        <div id="lista-modelos-rfb" class="flex-1 overflow-y-auto space-y-2 min-h-[4rem]"></div>
+        <div class="mt-4 pt-4 border-t border-[#334155]">
+            <label class="text-[10px] text-slate-400 font-bold uppercase block mb-1">Adicionar modelo ao RFB</label>
+            <div class="flex gap-2">
+                <select id="sel-add-modelo-rfb" class="flex-1 min-w-0 bg-[#0f172a] border border-[#334155] rounded p-2 text-white text-xs outline-none focus:border-cyan-500"><option value="">Selecione um modelo cadastrado...</option></select>
+                <button type="button" id="btn-add-modelo-rfb" class="bg-cyan-600 hover:bg-cyan-500 text-white px-4 rounded font-bold text-xs transition-colors">Adicionar</button>
+            </div>
+            <p class="text-[11px] text-slate-500 mt-2">O modelo não está na lista? Cadastre em <a href="/gerenciar-modelo-equipamento/" class="text-cyan-400 underline">Modelos e peças</a>.</p>
+        </div>
+    </div>
+</div>
+
+<div id="modal-finalizar-chamado" class="fixed inset-0 bg-[#0f172a]/90 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-[#1e293b] border border-[#334155] rounded-xl shadow-2xl w-full max-w-lg p-6 relative">
+        <button type="button" class="btn-fechar-modal absolute top-4 right-4 text-slate-400 hover:text-rose-500 transition-colors">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+        </button>
+        <h2 id="titulo-finalizar" class="text-lg font-bold text-emerald-400 uppercase tracking-wider mb-6 pb-2 border-b border-[#334155]">Finalizar Chamado</h2>
+        
+        <form id="form-finalizar-chamado" class="space-y-4">
+            <input type="hidden" id="finalizacao_id">
+            
+            <div class="flex gap-4">
+                <div class="flex-1">
+                    <label class="text-[10px] text-slate-400 font-bold uppercase block mb-1">Data/Hora Real da Conclusão</label>
+                    <input type="datetime-local" id="data_finalizacao_real" class="w-full bg-[#0f172a] border border-[#334155] rounded p-2 text-white text-xs outline-none focus:border-emerald-500 [color-scheme:dark]" required>
+                </div>
+                <div class="flex-1">
+                    <label class="text-[10px] text-slate-400 font-bold uppercase block mb-1">Tipo de Fechamento</label>
+                    <select id="finalizacao_tipo_chamado" class="w-full bg-[#0f172a] border border-[#334155] rounded p-2 text-white text-xs outline-none focus:border-emerald-500" required>
+                        <option value="" disabled selected>Selecione...</option>
+                        <option value="Garantia">Garantia</option>
+                        <option value="Orçamento">Orçamento</option>
+                        <option value="Contrato">Contrato</option>
+                        <option value="Cortesia">Cortesia</option>
+                        <option value="Improdutivo">Improdutivo</option>
+                    </select>
+                </div>
+            </div>
+
+            <label class="flex items-start gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-xs text-slate-200 cursor-pointer">
+                <input type="checkbox" id="chk-sem-intervencao" class="mt-0.5 accent-emerald-500">
+                <span><strong>Resolvido sem intervenção técnica</strong> (orientação remota, o cliente resolveu, etc.).
+                    Não exige técnico de campo nem peças; descreva abaixo como foi resolvido.</span>
+            </label>
+
+            <div id="bloco-tecnico-finalizar">
+                <label class="text-[10px] text-slate-400 font-bold uppercase block mb-1">Técnico de Campo</label>
+                <select id="finalizacao_tecnico" class="w-full bg-[#0f172a] border border-[#334155] rounded p-2 text-white text-xs outline-none focus:border-emerald-500" required>
+                    <option value="" disabled selected>Carregando técnicos...</option>
+                </select>
+            </div>
+
+            <div>
+                <label class="text-[10px] text-slate-400 font-bold uppercase block mb-1">Resolução do Caso</label>
+                <textarea id="finalizacao_resolucao" rows="3" class="w-full bg-[#0f172a] border border-[#334155] rounded p-2 text-white text-xs outline-none focus:border-emerald-500 placeholder:text-slate-600" placeholder="Descreva os testes realizados e como o problema foi solucionado..." required></textarea>
+            </div>
+
+            <div id="bloco-pecas-finalizar">
+                <label class="text-[10px] text-slate-400 font-bold uppercase block mb-1">Peças utilizadas (padronizadas pelo modelo)</label>
+                <div id="bloco-modelo-finalizar" class="hidden mb-2">
+                    <select id="finalizacao_modelo" class="w-full bg-[#0f172a] border border-[#334155] rounded p-2 text-white text-xs outline-none focus:border-emerald-500">
+                        <option value="">Este chamado não tem modelo cadastrado: escolha o modelo...</option>
+                    </select>
+                </div>
+                <div id="lista-pecas-finalizar" class="space-y-1 max-h-44 overflow-y-auto bg-[#0f172a] border border-[#334155] rounded p-2 text-xs text-slate-300"></div>
+                <label class="flex items-center gap-2 mt-2 text-xs text-slate-300 cursor-pointer">
+                    <input type="checkbox" id="chk-sem-peca" class="accent-emerald-500"> Nenhuma peça utilizada
+                </label>
+                <p id="aviso-pecas-finalizar" class="text-[11px] text-amber-400 mt-1"></p>
+            </div>
+
+            <div class="pt-4 flex justify-end">
+                <button type="submit" class="bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-2 rounded font-bold uppercase tracking-wider text-xs transition-colors shadow-[0_0_15px_rgba(5,150,105,0.3)]">Encerrar Definitivamente</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div id="modal-agendamento" class="hidden fixed inset-0 bg-[#0f172a]/80 backdrop-blur-sm z-[60] flex items-center justify-center">
+    <div class="bg-[#1e293b] border border-[#334155] rounded-2xl p-6 w-full max-w-4xl shadow-2xl relative">
+        <div class="flex justify-between mb-4">
+            <h2 id="modal-agendamento-title" class="text-white font-bold">Agendamento</h2>
+            <button class="btn-fechar-modal text-slate-400 hover:text-white">✕</button>
+        </div>
+        <form id="form-novo-agendamento" class="flex flex-wrap gap-4 mb-4 items-end bg-[#0f172a] p-4 rounded-lg border border-[#334155]">
+            <input type="hidden" id="agendamento_id_em_edicao">
+            <div class="flex-1 min-w-[150px]">
+                <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Tipo de Registro</label>
+                <select id="tipo_pausa" class="w-full bg-[#1e293b] border border-[#334155] text-white p-2.5 text-xs rounded outline-none focus:border-cyan-500">
+                    <option value="agendamento">Agendar Visita Técnica</option>
+                    <option value="sem_resposta">Pausa: Sem Resposta</option>
+                </select>
+            </div>
+            <div class="flex-1 min-w-[150px]">
+                <label id="lbl_data_registro" class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Data do Contato (Pausa)</label>
+                <input type="datetime-local" id="data_registro" class="w-full bg-[#1e293b] border border-[#334155] text-white p-2.5 text-xs rounded outline-none focus:border-cyan-500 [color-scheme:dark]" required>
+            </div>
+            <div class="flex-1 min-w-[150px]" id="container_data_visita">
+                <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Data Prevista da Visita</label>
+                <input type="datetime-local" id="data_visita" class="w-full bg-[#1e293b] border border-[#334155] text-white p-2.5 text-xs rounded outline-none focus:border-cyan-500 [color-scheme:dark]" required>
+            </div>
+            <div class="flex items-center gap-2">
+                <button type="button" id="btn-cancelar-edicao-agendamento" class="hidden bg-slate-700 hover:bg-slate-600 text-white px-4 py-2.5 rounded text-xs font-bold uppercase transition-colors">Cancelar</button>
+                <button type="submit" id="btn-submit-agendamento" class="bg-cyan-600 hover:bg-cyan-500 text-white px-6 py-2.5 rounded text-xs font-bold uppercase transition-colors">Registrar</button>
+            </div>
+        </form>
+        <div class="overflow-x-auto max-h-64 border border-[#334155] rounded-lg">
+            <table class="w-full text-left text-xs bg-[#0f172a]">
+                <thead class="bg-[#1e293b] text-[10px] text-slate-400 uppercase sticky top-0 border-b border-[#334155]">
+                    <tr><th class="p-3">Registro</th><th class="p-3">Ação Prevista</th><th class="p-3">Resposta Cliente</th><th class="p-3">Status</th><th class="p-3 text-center">Gestão</th></tr>
+                </thead>
+                <tbody id="lista-agendamentos" class="divide-y divide-[#334155] text-slate-300"></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
+<script>window.CARGO_USUARIO_SESSAO = "{{ request.session.funcionario_cargo|upper|escapejs }}";</script>
+<script src="{% static 'Daedalus/GerenciarRFB/G_RFB.js' %}" defer></script>
+{% endblock %}

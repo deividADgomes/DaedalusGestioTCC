@@ -1,0 +1,28 @@
+{% extends 'Daedalus/Base.html' %}
+{% load static %}
+{% block title %}Daedalus - Linha do tempo do equipamento{% endblock %}
+
+{% block header %}
+<div class="flex flex-col justify-center h-full">
+    <h1 class="text-2xl font-bold text-white">Linha do tempo por número de série</h1>
+    <p class="text-xs text-cyan-500 font-medium tracking-wide uppercase mt-1">Triagens, laudos e chamados RFB do mesmo equipamento</p>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto w-full space-y-6 pb-10">
+    <form id="form-serie" class="flex gap-3">
+        <input type="text" id="campo-sn" required maxlength="100" placeholder="Digite o número de série"
+               class="flex-1 bg-[#1e293b] border border-[#334155] rounded-lg px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500">
+        <button type="submit" class="px-6 rounded-lg text-sm font-semibold text-white bg-cyan-600 hover:bg-cyan-500 transition-colors">Buscar</button>
+    </form>
+
+    <p id="serie-resumo" class="hidden text-xs text-slate-400"></p>
+    <p id="serie-vazio" class="hidden text-sm text-slate-500">Nenhum registro encontrado para este número de série.</p>
+    <ol id="serie-eventos" class="relative border-l border-[#334155] ml-3 space-y-5"></ol>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'Daedalus/Serie/serie.js' %}" defer></script>
+{% endblock %}

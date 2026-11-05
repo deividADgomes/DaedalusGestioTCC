@@ -1,0 +1,5 @@
+{# Link do menu lateral. Uso: {% include 'Daedalus/partials/nav_link.html' with url_name='pesquisa' label='Pesquisar' icon='M...' %} #}
+<a href="{% url url_name %}" class="flex items-center gap-3 {% if filho %}ml-5 px-3 py-2{% else %}px-3 py-2.5{% endif %} rounded-lg border transition-all {% if request.resolver_match.url_name == url_name %}bg-cyan-500/10 text-cyan-400 border-cyan-500/20 shadow-[inset_0_0_12px_rgba(6,182,212,0.1)] font-semibold{% else %}border-transparent text-slate-400 hover:bg-slate-800 hover:text-slate-200 font-medium{% endif %}"{% if request.resolver_match.url_name == url_name %} aria-current="page"{% endif %}>
+    <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="{{ icon }}"></path></svg>
+    <span class="text-sm">{{ label }}</span>
+</a>

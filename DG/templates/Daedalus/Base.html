@@ -1,0 +1,189 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="pt-br">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>{% block title %}Daedalus Gestio{% endblock %}</title>
+
+    <script src="{% static 'Daedalus/csrf.js' %}"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="{% static 'Daedalus/global.css' %}">
+
+    <style>
+        .grupo-menu > summary { list-style: none; }
+        .grupo-menu > summary::-webkit-details-marker { display: none; }
+        .grupo-menu[open] > summary .seta-grupo { transform: rotate(90deg); }
+    </style>
+    {% block extra_css %}{% endblock %}
+</head>
+
+<body class="h-screen flex overflow-hidden selection:bg-cyan-500 selection:text-white bg-[#0f172a]">
+
+    <!-- Fundo escuro atrás do menu aberto (clique para fechar) -->
+    <div id="sidebar-backdrop" class="hidden fixed inset-0 bg-slate-950/60 z-30" aria-hidden="true"></div>
+
+    <!-- Menu lateral: fica recolhido e abre/fecha pelo botão do cabeçalho -->
+    <aside id="sidebar" aria-label="Menu principal" aria-hidden="true" class="fixed inset-y-0 left-0 w-72 max-w-[85vw] bg-[#1e293b] border-r border-[#334155] flex flex-col z-40 -translate-x-full transition-transform duration-300 motion-reduce:transition-none overflow-y-auto">
+
+        <div class="h-16 flex items-center justify-between px-5 border-b border-[#334155] flex-shrink-0">
+            <a href="{% url 'principal' %}" class="flex items-center">
+                <img src="{% static 'Daedalus/Icon/Logo_Icon.png' %}" alt="Daedalus Gestio Logo" class="w-8 h-8 rounded-full shadow-lg shadow-cyan-500/30">
+                <span class="ml-3 font-bold text-lg tracking-wide text-white">Daedalus Gestio</span>
+            </a>
+            <button id="btn-menu-fechar" type="button" aria-label="Fechar menu" class="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 6l12 12M18 6L6 18"></path></svg>
+            </button>
+        </div>
+
+        <nav class="flex-1 overflow-y-auto py-4 px-3 flex flex-col gap-1">
+            {% with u=request.resolver_match.url_name %}
+            {% include 'Daedalus/partials/nav_link.html' with url_name='principal' label='Menu principal' icon='M3 12l9-9 9 9M5 10v10h5v-6h4v6h5V10' %}
+            <details class="grupo-menu"{% if u == 'triagem' or u == 'pesquisa' or u == 'serie' %} open{% endif %}>
+                {% include 'Daedalus/partials/nav_grupo.html' with titulo='Triagem' icon='M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' %}
+                <div class="mt-1 mb-1 flex flex-col gap-1">
+                {% include 'Daedalus/partials/nav_link.html' with url_name='triagem' label='Nova triagem' icon='M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' filho=True %}
+                {% include 'Daedalus/partials/nav_link.html' with url_name='pesquisa' label='Pesquisar' icon='M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z' filho=True %}
+                {% include 'Daedalus/partials/nav_link.html' with url_name='serie' label='Linha do tempo por série' icon='M12 8v4l3 3M21 12a9 9 0 11-18 0 9 9 0 0118 0z' filho=True %}
+                </div>
+            </details>
+            {% include 'Daedalus/partials/nav_link.html' with url_name='dashboard' label='Dashboard' icon='M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z' %}
+            {% include 'Daedalus/partials/nav_link.html' with url_name='gerenciarRFB' label='Chamados RFB' icon='M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4' %}
+            <details class="grupo-menu"{% if u == 'emissaoLaudos' or u == 'pesquisaLaudos' or u == 'estatisticasLaudos' %} open{% endif %}>
+                {% include 'Daedalus/partials/nav_grupo.html' with titulo='Orçamentos' icon='M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z' %}
+                <div class="mt-1 mb-1 flex flex-col gap-1">
+                {% include 'Daedalus/partials/nav_link.html' with url_name='emissaoLaudos' label='Emissão de laudos' icon='M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z' filho=True %}
+                {% include 'Daedalus/partials/nav_link.html' with url_name='pesquisaLaudos' label='Pesquisa de laudos' icon='M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z' filho=True %}
+                {% include 'Daedalus/partials/nav_link.html' with url_name='estatisticasLaudos' label='Estatísticas' icon='M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z' filho=True %}
+                </div>
+            </details>
+            <details class="grupo-menu"{% if u == 'estoque' or u == 'saidas' %} open{% endif %}>
+                {% include 'Daedalus/partials/nav_grupo.html' with titulo='Estoque' icon='M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4' %}
+                <div class="mt-1 mb-1 flex flex-col gap-1">
+                {% include 'Daedalus/partials/nav_link.html' with url_name='estoque' label='Saldo de peças' icon='M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4' filho=True %}
+                {% include 'Daedalus/partials/nav_link.html' with url_name='saidas' label='Saída de peças' icon='M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4' filho=True %}
+                </div>
+            </details>
+            <details class="grupo-menu"{% if u == 'gerenciarEmpresa' or u == 'gerenciarTecnico' or u == 'gerenciarFuncionario' or u == 'gerenciarModeloEquipamento' %} open{% endif %}>
+                {% include 'Daedalus/partials/nav_grupo.html' with titulo='Cadastros' icon='M3 21h18M5 21V7l7-4 7 4v14M9 21v-6h6v6' %}
+                <div class="mt-1 mb-1 flex flex-col gap-1">
+                {% include 'Daedalus/partials/nav_link.html' with url_name='gerenciarEmpresa' label='Empresas' icon='M3 21h18M5 21V7l7-4 7 4v14M9 21v-6h6v6' filho=True %}
+                {% include 'Daedalus/partials/nav_link.html' with url_name='gerenciarTecnico' label='Técnicos' icon='M14.7 6.3a4 4 0 00-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 005.4-5.4l-2.5 2.5-2.5-.5-.5-2.5 2.5-2.5z' filho=True %}
+                {% include 'Daedalus/partials/nav_link.html' with url_name='gerenciarFuncionario' label='Funcionários' icon='M16 11a4 4 0 10-8 0 4 4 0 008 0zM4 21a8 8 0 0116 0' filho=True %}
+                {% include 'Daedalus/partials/nav_link.html' with url_name='gerenciarModeloEquipamento' label='Modelos e peças' icon='M21 8l-9-5-9 5v8l9 5 9-5V8zM3 8l9 5 9-5M12 13v8' filho=True %}
+                </div>
+            </details>
+            {% if request.session.funcionario_cargo == 'Administrador' or request.session.funcionario_cargo == 'Gestor' %}
+            {% include 'Daedalus/partials/nav_link.html' with url_name='auditoria' label='Auditoria' icon='M9 12l2 2 4-4m5.6-2.4A12 12 0 0112 3a12 12 0 01-8.6 3.6A12 12 0 003 12c0 5.2 3.4 9.6 9 11 5.6-1.4 9-5.8 9-11 0-1.5-.2-2.9-.4-4.4z' %}
+            {% endif %}
+            {% endwith %}
+        </nav>
+    </aside>
+
+    <main class="flex-1 flex flex-col relative h-full overflow-hidden min-w-0">
+
+        <header class="h-16 md:h-20 px-4 md:px-8 flex items-center gap-3 border-b border-[#1e293b] bg-[#0f172a]/80 backdrop-blur-md z-10 sticky top-0">
+
+            <button id="btn-menu-abrir" type="button" aria-label="Abrir menu" aria-controls="sidebar" aria-expanded="false" class="flex-shrink-0 p-2.5 rounded-lg bg-[#1e293b] border border-[#334155] text-slate-300 hover:border-cyan-500 hover:text-white transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+            </button>
+
+            <div class="flex-1 min-w-0">
+                {% block header %}{% endblock %}
+            </div>
+
+            <div class="hidden md:block relative flex-shrink-0">
+                <input id="busca-global" type="search" autocomplete="off" placeholder="Buscar ticket, série, laudo..." aria-label="Busca global"
+                       class="w-56 bg-[#1e293b] border border-[#334155] rounded-full px-4 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500 focus:w-72 transition-all">
+                <div id="resultado-busca" class="hidden absolute right-0 mt-2 w-96 max-w-[90vw] bg-[#1e293b] rounded-xl border border-[#334155] shadow-2xl z-50 overflow-hidden"></div>
+            </div>
+
+            {% block sino_global %}
+            <div class="relative flex-shrink-0">
+                <button id="btn-avisos" type="button" aria-label="Avisos" class="relative p-2.5 rounded-full bg-[#1e293b] border border-[#334155] text-slate-300 hover:border-cyan-500 hover:text-cyan-400 transition-colors focus:outline-none">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 10-12 0v3.2a2 2 0 01-.6 1.4L4 17h5m6 0a3 3 0 11-6 0"/></svg>
+                    <span id="badge-avisos" class="hidden absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-600 text-white text-[10px] font-bold flex items-center justify-center"></span>
+                </button>
+                <div id="painel-avisos" class="hidden absolute right-0 mt-2 w-80 max-w-[90vw] bg-[#1e293b] rounded-xl border border-[#334155] shadow-2xl z-50 overflow-hidden"></div>
+            </div>
+            {% endblock %}
+
+            <div class="relative inline-block text-left flex-shrink-0">
+                <button id="btn-perfil" class="flex items-center gap-3 bg-[#1e293b] border border-[#334155] rounded-full pr-4 pl-1 py-1 hover:border-cyan-500 transition-colors focus:outline-none">
+                    <div class="w-8 h-8 bg-cyan-900 rounded-full flex items-center justify-center text-cyan-400 font-bold uppercase shadow-inner">
+                        {{ request.session.funcionario_nome|make_list|first|default:"U" }}
+                    </div>
+                    <div class="hidden md:block text-left">
+                        <p class="text-xs font-bold text-white leading-tight">{{ request.session.funcionario_nome|default:"Usuário" }}</p>
+                        <p class="text-[10px] text-cyan-500 font-semibold">{{ request.session.funcionario_cargo|default:"Cargo" }}</p>
+                    </div>
+                    <svg class="w-4 h-4 text-slate-500 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                </button>
+
+                <div id="dropdown-perfil" class="hidden absolute right-0 mt-2 w-56 bg-[#1e293b] rounded-xl border border-[#334155] shadow-2xl z-50 overflow-hidden transform opacity-0 scale-95 transition-all duration-200 origin-top-right">
+                    <div class="p-4 border-b border-[#334155] bg-gradient-to-r from-cyan-900/20 to-transparent">
+                        <p class="text-sm font-bold text-white truncate">{{ request.session.funcionario_nome }}</p>
+                        <p class="text-xs text-slate-400 truncate mt-1">Matrícula: {{ request.session.funcionario_id }}</p>
+                    </div>
+                    <div class="p-2 space-y-1">
+                        <button id="btn-abrir-senha" class="flex items-center w-full text-left px-3 py-2 text-xs text-slate-300 hover:bg-[#0f172a] hover:text-cyan-400 rounded-lg transition-colors font-medium">
+                            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path></svg>
+                            Alterar Senha
+                        </button>
+                        <a href="{% url 'logout' %}" class="flex items-center w-full text-left px-3 py-2 text-xs text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors font-medium">
+                            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
+                            Sair do Sistema
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        {% block content %}{% endblock %}
+
+    </main>
+
+    <div id="modal-senha" class="hidden fixed inset-0 bg-[#0f172a]/80 backdrop-blur-sm z-[60] flex items-center justify-center">
+        <div class="bg-[#1e293b] border border-[#334155] rounded-2xl p-6 w-full max-w-sm shadow-2xl relative">
+            <h2 class="text-lg font-bold text-white mb-1">Alterar Senha</h2>
+            <p class="text-xs text-slate-400 mb-5">Crie uma nova senha de acesso (mínimo de 8 caracteres).</p>
+            <p id="aviso-senha-obrigatoria" class="hidden text-xs text-amber-400 font-medium mb-4">Sua senha é provisória. Defina uma nova senha para continuar usando o sistema.</p>
+
+            <form id="form-alterar-senha" class="space-y-4">
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Senha Atual</label>
+                    <input type="password" id="senha-atual" required autocomplete="current-password" class="w-full bg-[#0f172a] border border-[#334155] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-500">
+                </div>
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Nova Senha</label>
+                    <input type="password" id="nova-senha" required autocomplete="new-password" class="w-full bg-[#0f172a] border border-[#334155] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-500">
+                </div>
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Confirmar Nova Senha</label>
+                    <input type="password" id="confirma-senha" required autocomplete="new-password" class="w-full bg-[#0f172a] border border-[#334155] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-500">
+                </div>
+
+                <p id="msg-senha-erro" class="hidden text-xs text-rose-400 font-medium"></p>
+
+                <div class="flex gap-3 mt-6">
+                    <button type="button" id="btn-fechar-senha" class="flex-1 bg-transparent border border-[#334155] text-slate-300 hover:bg-[#334155] py-2 rounded-lg text-xs font-bold uppercase transition-colors">Cancelar</button>
+                    <button type="submit" class="flex-1 bg-cyan-600 hover:bg-cyan-500 text-white py-2 rounded-lg text-xs font-bold uppercase transition-colors shadow-lg shadow-cyan-900/20">Salvar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // Usadas só para ajustar a interface; as permissões de verdade são checadas no servidor.
+        window.CARGO_USUARIO_SESSAO = "{{ request.session.funcionario_cargo|escapejs }}";
+        window.PRIMEIRO_ACESSO = {{ request.session.primeiro_acesso|yesno:"true,false" }};
+    </script>
+    <script src="{% static 'Daedalus/BaseUI.js' %}" defer></script>
+    <script src="{% static 'Daedalus/shell.js' %}" defer></script>
+    {% block extra_js %}{% endblock %}
+
+</body>
+</html>

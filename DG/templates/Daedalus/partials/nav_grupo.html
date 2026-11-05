@@ -1,0 +1,6 @@
+{# Título de um submenu recolhível do menu lateral. Uso: {% include 'Daedalus/partials/nav_grupo.html' with titulo='Triagem' icon='M...' %} #}
+<summary class="flex items-center gap-3 px-3 py-2.5 rounded-lg border border-transparent text-slate-300 hover:bg-slate-800 hover:text-slate-100 font-semibold cursor-pointer select-none">
+    <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="{{ icon }}"></path></svg>
+    <span class="text-sm flex-1">{{ titulo }}</span>
+    <svg class="seta-grupo w-4 h-4 text-slate-500 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+</summary>

@@ -1,0 +1,55 @@
+{% extends 'Daedalus/Base.html' %}
+{% load static %}
+{% block title %}Daedalus - Estoque{% endblock %}
+
+{% block header %}
+<div class="flex flex-col justify-center h-full">
+    <h1 class="text-2xl font-bold text-white">Estoque de peças</h1>
+    <p class="text-xs text-cyan-500 font-medium tracking-wide uppercase mt-1">Saldo, entradas, saídas e estoque mínimo</p>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto w-full space-y-5 pb-10">
+    <section class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="bg-[#1e293b] rounded-xl border border-[#334155] p-4"><p class="text-[10px] uppercase tracking-wider text-slate-500">Peças controladas</p><p id="res-itens" class="text-2xl font-bold text-white mt-1">-</p></div>
+        <div class="bg-[#1e293b] rounded-xl border border-[#334155] p-4"><p class="text-[10px] uppercase tracking-wider text-slate-500">Valor em estoque</p><p id="res-valor" class="text-2xl font-bold text-emerald-400 mt-1">-</p></div>
+        <button type="button" id="card-abaixo" class="text-left bg-[#1e293b] rounded-xl border border-[#334155] p-4 hover:border-amber-500 transition-colors"><p class="text-[10px] uppercase tracking-wider text-slate-500">Abaixo do mínimo</p><p id="res-abaixo" class="text-2xl font-bold text-amber-400 mt-1">-</p></button>
+        <button type="button" id="card-sem-saldo" class="text-left bg-[#1e293b] rounded-xl border border-[#334155] p-4 hover:border-rose-500 transition-colors"><p class="text-[10px] uppercase tracking-wider text-slate-500">Sem saldo</p><p id="res-sem-saldo" class="text-2xl font-bold text-rose-400 mt-1">-</p></button>
+    </section>
+
+    <section class="flex flex-wrap gap-3 items-center">
+        <input type="search" id="estoque-busca" placeholder="Buscar por PN, descrição ou local..."
+               class="flex-1 min-w-[220px] bg-[#1e293b] border border-[#334155] rounded-lg px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500">
+        <select id="estoque-situacao" class="bg-[#1e293b] border border-[#334155] rounded-lg px-3 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-cyan-500">
+            <option value="todos">Todas</option>
+            <option value="abaixo">Abaixo do mínimo</option>
+            <option value="sem_saldo">Sem saldo</option>
+        </select>
+        <button type="button" id="btn-nova-entrada" class="px-5 py-2.5 rounded-lg text-sm font-semibold text-white bg-cyan-600 hover:bg-cyan-500 transition-colors">Nova entrada</button>
+    </section>
+
+    <div class="bg-[#1e293b] rounded-xl border border-[#334155] overflow-x-auto">
+        <table class="w-full text-xs">
+            <thead class="text-slate-400 uppercase text-[10px] tracking-wider border-b border-[#334155]">
+                <tr>
+                    <th class="text-left px-4 py-3">Peça</th>
+                    <th class="text-right px-4 py-3">Saldo</th>
+                    <th class="text-right px-4 py-3">Mínimo</th>
+                    <th class="text-left px-4 py-3">Local</th>
+                    <th class="text-right px-4 py-3">Custo médio</th>
+                    <th class="text-right px-4 py-3">Valor</th>
+                    <th class="text-right px-4 py-3">Ações</th>
+                </tr>
+            </thead>
+            <tbody id="estoque-linhas" class="divide-y divide-[#334155]/60 text-slate-200"></tbody>
+        </table>
+    </div>
+    <p id="estoque-vazio" class="hidden text-sm text-slate-500">Nenhuma peça encontrada. Use "Nova entrada" para começar a controlar uma peça do catálogo.</p>
+    <p class="text-[11px] text-slate-500">O custo médio é recalculado a cada entrada com custo informado. Saídas e contagens exigem um motivo e ficam no histórico da peça.</p>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'Daedalus/Estoque/estoque.js' %}" defer></script>
+{% endblock %}
