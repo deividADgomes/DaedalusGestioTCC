@@ -6,7 +6,7 @@ from .autenticacao import (AlterarSenhaAPIView, LoginAPIView, LoginView, LogoutV
 from .cadastros import (ConsultarPartSurferView, CotacaoDetalheView, CotacoesPecaView, EmpresaView,
                         EquipamentoView, FuncionarioView, ImportarPecasView, PecaManualView, PecaRemoverView, PecasEquipamentoView,
                         TecnicoView)
-from .orcamentos import (OrcamentoDetalheView, OrcamentoHistoricoView, OrcamentoDocxView, OrcamentoEmailView, OrcamentoEstatisticasView,
+from .orcamentos import (OrcamentoDetalheView, OrcamentoHistoricoView, OrcamentoCopiaView, OrcamentoDocxView, OrcamentoEmailView, OrcamentoEstatisticasView,
                          OrcamentoPrePreenchimentoView, OrcamentoStatusView, OrcamentosPendentesView,
                          OrcamentosView)
 from .rfb import AgendamentoAPIView, ChamadosRFBAPIView, RFBModelosView
@@ -16,7 +16,7 @@ from .telas import (daedalus_saidas, daedalus_estoque, daedalus_auditoria, daeda
                     daedalus_gerenciarTecnico, daedalus_pesquisa, daedalus_pesquisa_laudos,
                     daedalus_principal, daedalus_triagem, daedalus_visualizar_triagem)
 from .bi import (BIAtualizarView, BIComercialView, BIExecutivoView, BIFiltrosView, BIInsightLidoView, BIInsightsView,
-                 BIOperacaoView, BIPecasView, BIQualidadeView)
+                 BIOperacaoView, BIPecasView, BIChamadosAnalistaView, BIPecaRegioesView, BIQualidadeView)
 from .auditoria import AuditoriaView
 from .avisos import AvisosView, BuscaView, SessaoPingView
 from .estoque import (EstoqueCatalogoView, EstoqueConfigView, EstoqueHistoricoView, EstoqueMovimentarView,
@@ -24,4 +24,4 @@ from .estoque import (EstoqueCatalogoView, EstoqueConfigView, EstoqueHistoricoVi
 from .saidas import (SaidaCancelarView, SaidaCsvView, SaidaDetalheView, SaidaEnviarView, SaidaNotaView,
                      SaidaRetornoView, SaidasView)
 from .serie import SerieView, TriagemPorSerieView
-from .triagem import ExportarTriagemDocxView, TriagemHistoricoView, TriagemView
+from .triagem import ExportarTriagemDocxView, TriagemHistoricoView, TriagemOpcoesView, TriagemView

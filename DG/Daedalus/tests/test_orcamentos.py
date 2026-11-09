@@ -578,3 +578,93 @@ class AvisosDeCotacaoNoRascunhoTests(OrcamentoBase):
         id_orc = self.com_item()
         self.post_json(f'/api/orcamentos/{id_orc}/status/', {'status': 'emitido'})
         self.assertEqual(self.client.get(f'/api/orcamentos/{id_orc}/').json()['dado']['avisos_cotacao'], [])
+
+
+class CopiaDeLaudoTests(OrcamentoBase):
+    """Começar um laudo novo a partir de um já existente."""
+
+    def copiar(self, **params):
+        return self.client.get('/api/orcamentos/copiar/', params)
+
+    def emitido(self, **dados):
+        a = self.criar(**dados)
+        self.post_json(f"/api/orcamentos/{a['id']}/status/", {'status': 'emitido'})
+        return a
+
+    def test_copia_traz_os_dados_do_laudo_sem_numero_status_nem_datas(self):
+        a = self.emitido(cliente_nome='Prefeitura de Itu', cliente_email='itu@exemplo.com', motivo_problema='Display trincado',
+                         analise='Troca do display', prazo_estimado='5 dias úteis')
+        r = self.copiar(numero=a['numero'])
+        self.assertEqual(r.status_code, 200, r.content)
+        d = r.json()['dado']
+        self.assertEqual((d['cliente_nome'], d['cliente_email'], d['motivo_problema'], d['analise'], d['prazo_estimado']),
+                         ('Prefeitura de Itu', 'itu@exemplo.com', 'Display trincado', 'Troca do display', '5 dias úteis'))
+        for campo in ('id', 'numero', 'status', 'data_emissao', 'validade_ate', 'analista_nome', 'analista_email', 'motivo_recusa', 'valor_total'):
+            self.assertNotIn(campo, d, campo)
+        self.assertEqual(d['origem']['numero'], a['numero'])
+        self.assertEqual(len(d['itens']), 1)
+        self.assertEqual(d['itens'][0]['peca_id'], self.peca.id_peca)
+
+    def test_copia_o_ticket_o_equipamento_e_a_regra_de_preco(self):
+        a = self.emitido(ticket='7788', equip_modelo='EliteBook', equip_sn='SN-ORIGINAL', aplicar_regra=False)
+        d = self.copiar(numero=a['numero']).json()['dado']
+        self.assertEqual((d['ticket'], d['equip_modelo'], d['equip_sn'], d['aplicar_regra']), ('7788', 'EliteBook', 'SN-ORIGINAL', False))
+
+    def test_qualquer_status_pode_ser_copiado(self):
+        rascunho = self.criar()
+        recusado = self.emitido()
+        self.post_json(f"/api/orcamentos/{recusado['id']}/status/", {'status': 'recusado', 'motivo_recusa': 'Preço'})
+        cancelado = self.emitido()
+        self.post_json(f"/api/orcamentos/{cancelado['id']}/status/", {'status': 'cancelado'})
+        for a in (rascunho, recusado, cancelado):
+            self.assertEqual(self.copiar(numero=a['numero']).status_code, 200, a['numero'])
+        self.assertNotIn('motivo_recusa', self.copiar(numero=recusado['numero']).json()['dado'])      # a recusa não vai para a cópia
+
+    def test_numero_sem_diferenciar_maiusculas_ou_so_o_final(self):
+        a = self.emitido()
+        self.assertEqual(self.copiar(numero=a['numero'].lower()).status_code, 200)
+        final = a['numero'].split('ORC-', 1)[1]                   # ex.: 2026-0001
+        self.assertEqual(self.copiar(numero=final).json()['dado']['origem']['numero'], a['numero'])
+
+    def test_numero_inexistente_ou_vazio(self):
+        self.emitido()
+        self.assertEqual(self.copiar(numero='9999-9999').status_code, 404)
+        self.assertEqual(self.copiar(numero='   ').status_code, 400)
+        self.assertEqual(self.copiar().status_code, 400)
+
+    def test_final_do_numero_que_casa_com_mais_de_um_laudo_e_recusado(self):
+        a, b = self.emitido(), self.emitido()
+        Orcamento.objects.filter(pk=b['id']).update(numero=a['numero'].replace('ORC-', 'OUT-'))   # dois números com o mesmo final
+        r = self.copiar(numero=a['numero'].split('-', 1)[1])
+        self.assertEqual(r.status_code, 400)
+        self.assertIn('Mais de um laudo', r.json()['mensagem'])
+
+    def test_por_padrao_mantem_os_valores_e_com_a_opcao_usa_a_cotacao_mais_recente(self):
+        a = self.emitido()
+        antigo = self.copiar(numero=a['numero']).json()['dado']['itens'][0]
+        fornecedor = Empresa.objects.create(cnpj='03619767000191', razao_social='Fornecedor Novo', tipo=3)
+        nova = CotacaoPeca.objects.create(peca=self.peca, fornecedor=fornecedor, valor='999.00', data_cotacao=date.today())
+        sem_atualizar = self.copiar(numero=a['numero']).json()['dado']
+        self.assertEqual((sem_atualizar['itens'][0]['valor_base'], sem_atualizar['mudancas_preco']), (antigo['valor_base'], []))
+        atualizado = self.copiar(numero=a['numero'], atualizar_valores=1).json()['dado']
+        self.assertEqual((atualizado['itens'][0]['valor_base'], atualizado['itens'][0]['cotacao_id']), (999.0, nova.id_cotacao))
+        self.assertIn('999,00', atualizado['mudancas_preco'][0])
+
+    def test_salvar_a_copia_cria_um_laudo_novo_e_nao_mexe_no_original(self):
+        a = self.emitido(cliente_nome='Cliente Original')
+        d = self.copiar(numero=a['numero']).json()['dado']
+        d['cliente_nome'] = 'Cliente Corrigido'
+        itens = [{'peca_id': i['peca_id'], 'cotacao_id': i['cotacao_id'], 'quantidade': i['quantidade'], 'valor_base': i['valor_base']} for i in d['itens']]
+        r = self.post_json('/api/orcamentos/', self.dados(cliente_nome=d['cliente_nome'], equip_modelo=d['equip_modelo'], equip_sn=d['equip_sn'], itens=itens))
+        self.assertEqual(r.status_code, 200, r.content)
+        novo = r.json()['dado']
+        self.assertNotEqual(novo['numero'], a['numero'])
+        self.assertEqual((novo['status'], novo['cliente_nome']), ('rascunho', 'Cliente Corrigido'))
+        original = Orcamento.objects.get(pk=a['id'])
+        self.assertEqual((original.cliente_nome, original.status), ('Cliente Original', 'emitido'))
+
+    def test_por_id_e_exige_login(self):
+        a = self.emitido()
+        self.assertEqual(self.copiar(id=a['id']).json()['dado']['origem']['numero'], a['numero'])
+        self.client.get('/logout/')
+        self.assertEqual(self.copiar(numero=a['numero']).status_code, 401)

@@ -24,21 +24,37 @@ class TriagemService:
         if not dto.id_tecnico or not dto.id_cliente or not dto.id_analista_chamado or not dto.id_analista_triagem or not dto.id_equipamento:
             raise ValueError("Todos os vínculos são obrigatórios.")
 
+    # Motivos para uma troca ser indevida. Para acrescentar um motivo novo, basta incluí-lo nesta lista.
+    MOTIVO_OUTRO = 'Outro'
+    MOTIVOS_TROCA_INDEVIDA = ['Avaria constatada (orçamento)', 'Não era a peça com defeito', 'Resolvido com software', MOTIVO_OUTRO]
+
+    @staticmethod
+    def _validar_motivo_indevida(dto: TriagemDTO):
+        """Troca indevida exige o motivo (e a explicação quando o motivo é "Outro"). Nos demais casos nada é guardado."""
+        if dto.troca_indevida is not True:
+            return '', ''
+        motivo = ' '.join(str(dto.motivo_troca_indevida or '').split())
+        if motivo not in TriagemService.MOTIVOS_TROCA_INDEVIDA:
+            raise ValueError("Informe o motivo da troca indevida.")
+        justificativa = ' '.join(str(dto.justificativa_troca_indevida or '').split())[:300]
+        if motivo == TriagemService.MOTIVO_OUTRO and len(justificativa) < 3:
+            raise ValueError("Descreva o motivo da troca indevida (motivo \"Outro\").")
+        return motivo, justificativa
+
     @staticmethod
     def _eh_system(peca, texto: str) -> bool:
-        """A peça trocada é um "System" (placa-mãe): o PN termina em -601 ou "System" aparece na descrição ou no texto digitado."""
+        """System board: o PN da peça termina em -601 (também vale um PN terminado em -601 digitado em "Outra peça")."""
         pn = (peca.part_number if peca else '') or ''
-        descricao = (peca.descricao if peca else '') or ''
-        texto = texto or ''
-        return pn.upper().endswith('-601') or bool(re.search(r'\bsystem\b', f"{descricao} {texto}", re.I)) or bool(re.search(r'-601\b', texto))
+        return pn.strip().upper().endswith('-601') or bool(re.search(r'-601\b', texto or ''))
 
     @staticmethod
     def _validar_ct(dto: TriagemDTO, peca, troca) -> str:
+        """CT é o número de série da System board: obrigatório quando a peça é uma System, e só é guardado nesse caso."""
+        if not TriagemService._eh_system(peca, troca):
+            return ''
         ct = ''.join(str(dto.ct or '').split()).upper()
-        if not ct and TriagemService._eh_system(peca, troca):
-            raise ValueError("Informe o CT (o PN terminado em -601) quando a peça trocada for System.")
-        if ct and not ct.endswith('-601'):
-            raise ValueError("O CT deve ser o PN terminado em -601.")
+        if not ct:
+            raise ValueError("Informe o CT (número de série da placa) quando a peça trocada for uma System board (PN terminado em -601).")
         return ct[:60]
 
     @staticmethod
@@ -62,7 +78,7 @@ class TriagemService:
         ('n_ticket', 'Ticket'), ('nf', 'NF'), ('cliente', 'Cliente'), ('tecnico', 'Técnico'),
         ('analista_chamado', 'Analista do chamado'), ('cidade', 'Cidade'), ('estado', 'UF'),
         ('equipamento', 'Equipamento'), ('sn', 'Nº de série'), ('status', 'Status da peça'),
-        ('troca', 'Peça/equipamento trocado'), ('troca_indevida', 'Troca indevida'), ('ct', 'CT'), ('defeito_usuario', 'Defeito alegado'),
+        ('troca', 'Peça/equipamento trocado'), ('troca_indevida', 'Troca indevida'), ('motivo_troca_indevida', 'Motivo da troca indevida'), ('justificativa_troca_indevida', 'Justificativa da troca indevida'), ('ct', 'CT'), ('defeito_usuario', 'Defeito alegado'),
         ('defeito_tecnico', 'Constatação do técnico'), ('defeito_constatado', 'Defeito constatado'),
         ('testes', 'Testes realizados'), ('analise', 'Análise técnica'), ('conclusao', 'Conclusão'),
     ]
@@ -78,6 +94,7 @@ class TriagemService:
             'cidade': texto(t.cidade), 'estado': texto(t.estado), 'equipamento': texto(t.equipamento.modelo),
             'sn': texto(t.sn), 'status': 'Funcional' if t.status == StatusPeca.FUNCIONAL else 'Defeito',
             'troca': texto(t.troca), 'troca_indevida': {True: 'Sim', False: 'Não'}.get(t.troca_indevida, ''),
+            'motivo_troca_indevida': texto(t.motivo_troca_indevida), 'justificativa_troca_indevida': texto(t.justificativa_troca_indevida),
             'ct': texto(t.ct), 'defeito_usuario': texto(t.defeito_usuario),
             'defeito_tecnico': texto(t.defeito_tecnico), 'defeito_constatado': texto(t.defeito_constatado),
             'testes': texto(t.testes), 'analise': texto(t.analise), 'conclusao': texto(t.conclusao),
@@ -116,6 +133,7 @@ class TriagemService:
         status_enum = dto.status_peca.value if hasattr(dto.status_peca, 'value') else dto.status_peca
         peca_trocada, troca = TriagemService._resolver_troca(dto, equipamento)
         ct = TriagemService._validar_ct(dto, peca_trocada, troca)
+        motivo_indevida, justificativa_indevida = TriagemService._validar_motivo_indevida(dto)
 
         if dto.id_triagem:
             triagem = Triagem.objects.select_related('cliente', 'equipamento', 'tecnico', 'analista_chamado').get(pk=dto.id_triagem)
@@ -129,6 +147,7 @@ class TriagemService:
             triagem.troca = troca
             triagem.peca_trocada = peca_trocada
             triagem.troca_indevida = dto.troca_indevida
+            triagem.motivo_troca_indevida, triagem.justificativa_troca_indevida = motivo_indevida, justificativa_indevida
             triagem.ct = ct
             triagem.defeito_usuario = dto.defeito_usuario
             triagem.defeito_tecnico = dto.defeito_tecnico
@@ -159,6 +178,8 @@ class TriagemService:
                 troca=troca,
                 peca_trocada=peca_trocada,
                 troca_indevida=dto.troca_indevida,
+                motivo_troca_indevida=motivo_indevida,
+                justificativa_troca_indevida=justificativa_indevida,
                 ct=ct,
                 defeito_usuario=dto.defeito_usuario, 
                 defeito_tecnico=dto.defeito_tecnico,
@@ -245,6 +266,8 @@ class TriagemService:
             troca=triagem.troca,
             id_peca_trocada=triagem.peca_trocada_id,
             troca_indevida=triagem.troca_indevida,
+            motivo_troca_indevida=triagem.motivo_troca_indevida,
+            justificativa_troca_indevida=triagem.justificativa_troca_indevida,
             ct=triagem.ct,
             defeito_usuario=triagem.defeito_usuario, 
             defeito_tecnico=triagem.defeito_tecnico, 
@@ -283,6 +306,8 @@ class TriagemService:
         t2.cell(2, 2).text = f"Equipamento: {tri.nome_equipamento or ''}"
         t2.cell(3, 1).text = f"N° de Série: {tri.sn or ''}"
         indevida = {True: 'Sim', False: 'Não'}.get(tri.troca_indevida, 'não informado')
+        if tri.troca_indevida and tri.motivo_troca_indevida:
+            indevida += f" ({tri.motivo_troca_indevida}{': ' + tri.justificativa_troca_indevida if tri.justificativa_troca_indevida else ''})"
         t2.cell(4, 1).text = f"Peça/Equipamento Trocado: {tri.troca or ''}  |  Troca indevida: {indevida}" + (f"  |  CT: {tri.ct}" if tri.ct else "")
         t2.cell(5, 1).text = f"Defeito alegado: {tri.defeito_usuario or ''}"
         t2.cell(6, 1).text = f"Constatação do Técnico: {tri.defeito_tecnico or ''}"

@@ -34,7 +34,8 @@ class TriagemView(View):
                         'id': tri.id_triagem, 'n_ticket': tri.n_ticket, 'nf': tri.nf, 
                         'cidade': tri.cidade, 'estado': tri.estado, 'sn': tri.sn, 
                         'status_peca': tri.status_peca.value if hasattr(tri.status_peca, 'value') else tri.status_peca, 
-                        'troca': tri.troca, 'id_peca_trocada': tri.id_peca_trocada, 'troca_indevida': tri.troca_indevida, 'ct': tri.ct, 'defeito_usuario': tri.defeito_usuario, 
+                        'troca': tri.troca, 'id_peca_trocada': tri.id_peca_trocada, 'troca_indevida': tri.troca_indevida, 'motivo_troca_indevida': tri.motivo_troca_indevida,
+                        'justificativa_troca_indevida': tri.justificativa_troca_indevida, 'ct': tri.ct, 'defeito_usuario': tri.defeito_usuario, 
                         'defeito_tecnico': tri.defeito_tecnico, 'defeito_constatado': tri.defeito_constatado, 
                         'testes': tri.testes, 'analise': tri.analise, 'conclusao': tri.conclusao, 
                         'nome_cliente': tri.nome_cliente, 'nome_equipamento': tri.nome_equipamento, 
@@ -86,6 +87,8 @@ class TriagemView(View):
                 troca=body.get('troca'), 
                 id_peca_trocada=int(body.get('id_peca_trocada') or 0) or None,
                 troca_indevida=_sim_nao(body.get('troca_indevida')),
+                motivo_troca_indevida=body.get('motivo_troca_indevida'),
+                justificativa_troca_indevida=body.get('justificativa_troca_indevida'),
                 ct=body.get('ct'),
                 defeito_usuario=body.get('defeito_usuario'), 
                 defeito_tecnico=body.get('defeito_tecnico'), 
@@ -102,6 +105,13 @@ class TriagemView(View):
              return JsonResponse({'status': 'erro', 'mensagem': f"Erro de validação: {str(ve)}"}, status=400)
         except Exception as e:
             return erro_interno(e)
+
+
+class TriagemOpcoesView(View):
+    """GET: listas usadas pelo formulário da triagem (hoje, os motivos de troca indevida)."""
+    def get(self, request):
+        return JsonResponse({'status': 'sucesso', 'dados': {'motivos_troca_indevida': TriagemService.MOTIVOS_TROCA_INDEVIDA,
+                                                           'motivo_outro': TriagemService.MOTIVO_OUTRO}})
 
 
 class TriagemHistoricoView(View):
