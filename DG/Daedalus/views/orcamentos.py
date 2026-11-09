@@ -125,21 +125,6 @@ class OrcamentoEmailView(View):
             return erro_interno(e)
 
 
-class OrcamentoCopiaView(View):
-    """GET ?numero=ORC-2026-0012 (ou ?id=) [&atualizar_valores=1]: dados de um laudo existente para começar um novo."""
-    def get(self, request):
-        try:
-            atualizar = str(request.GET.get('atualizar_valores') or '').lower() in ('1', 'true', 'sim', 'on')
-            dado = OrcamentoService.copiar(request.GET.get('numero'), int(request.GET.get('id') or 0) or None, atualizar)
-            return JsonResponse({'status': 'sucesso', 'dado': dado})
-        except Orcamento.DoesNotExist as de:
-            return resposta_erro(str(de) if de.args and str(de) else 'Laudo não encontrado.', 404)
-        except ValueError as ve:
-            return resposta_erro(str(ve), 400)
-        except Exception as e:
-            return erro_interno(e)
-
-
 class OrcamentoPrePreenchimentoView(View):
     """GET ?ticket=123 -> dados da triagem para começar o laudo."""
     def get(self, request):

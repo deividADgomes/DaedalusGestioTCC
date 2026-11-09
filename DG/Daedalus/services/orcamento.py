@@ -245,54 +245,6 @@ class OrcamentoService:
         }
 
     @staticmethod
-    def copiar(numero=None, id_orcamento=None, atualizar_valores: bool = False) -> dict:
-        """
-        Dados para começar um laudo NOVO a partir de um já existente (qualquer status): cliente, equipamento, motivo, análise, prazo,
-        regra de preço e as peças. Não leva número, status, datas, analista, histórico nem motivo de recusa: o novo laudo nasce como rascunho.
-        Por padrão as peças mantêm os valores do laudo original; com `atualizar_valores`, as peças do catálogo passam para a cotação mais recente.
-        """
-        qs = Orcamento.objects.prefetch_related('itens')
-        if id_orcamento:
-            orc = qs.get(pk=id_orcamento)
-        else:
-            texto = ' '.join(str(numero or '').split())
-            if not texto:
-                raise ValueError("Informe o número do laudo que será copiado.")
-            orc = qs.filter(numero__iexact=texto).first()
-            if orc is None:                                  # aceita o final do número, ex.: 2026-0012
-                candidatos = list(qs.filter(numero__iendswith=texto)[:2])
-                if len(candidatos) > 1:
-                    raise ValueError("Mais de um laudo termina com esse número. Informe o número completo (ex.: ORC-2026-0012).")
-                orc = candidatos[0] if candidatos else None
-            if orc is None:
-                raise Orcamento.DoesNotExist(f"Nenhum laudo encontrado com o número {texto}.")
-
-        dados = orcamento_para_dict(orc)
-        for chave in ('id', 'numero', 'status', 'status_nome', 'motivo_recusa', 'analista_nome', 'analista_email', 'data_emissao', 'validade_ate',
-                      'valor_total', 'editavel', 'alteravel', 'total_alteracoes', 'avisos_cotacao'):
-            dados.pop(chave, None)
-
-        def moeda(v):
-            return f"R$ {v:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
-
-        itens, mudancas = [], []
-        for i in dados['itens']:
-            item = {k: i[k] for k in ('peca_id', 'cotacao_id', 'nome', 'descricao', 'part_number', 'quantidade', 'valor_base')}
-            if atualizar_valores and i['peca_id']:
-                peca = Peca.objects.filter(pk=i['peca_id']).first()
-                cotacao = peca.cotacao_atual() if peca else None
-                if cotacao is not None and (cotacao.pk != i['cotacao_id'] or float(cotacao.valor) != i['valor_base']):
-                    rotulo = i['part_number'] or i['nome'] or 'Peça'
-                    if float(cotacao.valor) != i['valor_base']:
-                        mudancas.append(f"{rotulo}: {moeda(i['valor_base'])} → {moeda(float(cotacao.valor))}")
-                    item['valor_base'], item['cotacao_id'] = float(cotacao.valor), cotacao.id_cotacao
-            itens.append(item)
-        dados['itens'] = itens
-        dados['mudancas_preco'] = mudancas
-        dados['origem'] = {'numero': orc.numero, 'status_nome': orc.get_status_display(), 'data_emissao': orc.data_emissao.isoformat()}
-        return dados
-
-    @staticmethod
     def obter(id_orcamento: int) -> dict:
         orc = Orcamento.objects.prefetch_related('itens').get(pk=id_orcamento)
         return orcamento_para_dict(orc)

@@ -20,7 +20,7 @@ from django.db.models import Count, DecimalField, F, Max, Q, Sum
 from django.db.models.functions import TruncWeek
 from django.utils import timezone as django_timezone
 
-from ..models import (AgendamentoChamado, AlertaSLAEnviado, ChamadoRFB, CotacaoPeca, Equipamento, EstoquePeca, Funcionario,
+from ..models import (AgendamentoChamado, AlertaSLAEnviado, ChamadoRFB, CotacaoPeca, Equipamento, Funcionario,
                       Insight, ItemOrcamento, Orcamento, OrcamentoHistorico, Peca, SnapshotSLA, Tecnico, Triagem)
 from .chamado_rfb import ChamadoRFBService
 from .estatistica import (MIN_AMOSTRA, NFF, REFERENCIA_NFF, classificar, comparar_diagnostico, intervalo_wilson,
@@ -40,15 +40,6 @@ def _cfg() -> dict:
             'modelo_min_n': 20, 'modelo_fator': 2.0}
     base.update(getattr(settings, 'BI_CONFIG', {}))
     return base
-
-
-MACRORREGIAO = {
-    **{uf: 'Norte' for uf in ('AC', 'AP', 'AM', 'PA', 'RO', 'RR', 'TO')},
-    **{uf: 'Nordeste' for uf in ('AL', 'BA', 'CE', 'MA', 'PB', 'PE', 'PI', 'RN', 'SE')},
-    **{uf: 'Centro-Oeste' for uf in ('DF', 'GO', 'MT', 'MS')},
-    **{uf: 'Sudeste' for uf in ('ES', 'MG', 'RJ', 'SP')},
-    **{uf: 'Sul' for uf in ('PR', 'RS', 'SC')},
-}
 
 
 def _limite(metropolitana: bool) -> float:
@@ -390,23 +381,6 @@ class BIService:
                       .annotate(sem=TruncWeek('data_conclusao')).values('sem').annotate(n=Count('id_chamado'))):
             semanas[str(linha['sem'])[:10]]['concluidos'] = linha['n']
 
-        # Histórico completo de cada analista: tudo o que já passou por ele (o período só recorta "abertos no período").
-        historico_analistas = []
-        for l in (base.values('analista_responsavel_id', 'analista_responsavel__nome')
-                  .annotate(total=Count('id_chamado'),
-                            ativos=Count('id_chamado', filter=~Q(status__in=INATIVOS)),
-                            atendidos=Count('id_chamado', filter=Q(status='concluido')),
-                            cancelados=Count('id_chamado', filter=Q(status='cancelado')),
-                            sem_intervencao=Count('id_chamado', filter=Q(status='concluido', sem_intervencao_tecnica=True)),
-                            no_periodo=Count('id_chamado', filter=Q(data_abertura__date__gte=ini, data_abertura__date__lte=fim)))
-                  .order_by('-total', 'analista_responsavel__nome')):
-            nome = l['analista_responsavel__nome'] or 'Sem analista'
-            historico_analistas.append({
-                'id_analista': l['analista_responsavel_id'] or 0, 'nome': nome, 'total': l['total'], 'ativos': l['ativos'],
-                'atendidos': l['atendidos'], 'cancelados': l['cancelados'], 'sem_intervencao': l['sem_intervencao'],
-                'no_periodo': l['no_periodo'], 'estourados': por_analista[nome]['estourados'] if nome in por_analista else 0,
-                'pct_atendidos': round(l['atendidos'] * 100 / l['total'], 1) if l['total'] else None})
-
         agend = {l['status']: l['n'] for l in AgendamentoChamado.objects.filter(
             chamado__in=base, data_registro_pausa__date__gte=ini, data_registro_pausa__date__lte=fim
         ).values('status').annotate(n=Count('id_agendamento'))}
@@ -426,9 +400,6 @@ class BIService:
                                      'pct_medio': round(v['soma_pct'] / v['ativos'], 1)} for k, v in por_analista.items()),
                                    key=lambda x: -x['ativos']),
             'criticos': criticos[:15],
-            'historico_analistas': historico_analistas,
-            'regioes': BIService._regioes(f, ini, fim),
-            'pecas_utilizadas': BIService._pecas_utilizadas(f, ini, fim),
             'vazao': [{'semana': k, **v} for k, v in sorted(semanas.items())],
             'agendamentos': {'pendente': agend.get('pendente', 0), 'realizado': agend.get('realizado', 0),
                              'frustrado': agend.get('frustrado', 0),
@@ -440,172 +411,6 @@ class BIService:
             'concluidos': {**concluidos, 'comparacao_pct': _comparar(concluidos['pct'], concluidos_ant['pct']),
                            'comparacao_mttr': _comparar(concluidos['mttr'], concluidos_ant['mttr'], True)},
         }
-
-    @staticmethod
-    def _usos_de_pecas(f: Filtros, ini, fim, id_peca=None):
-        """
-        Cada "uso" é uma peça registrada como utilizada num chamado RFB CONCLUÍDO dentro do período (data de conclusão).
-        O cadastro guarda só se a peça foi usada no chamado, sem quantidade: cada chamado conta uma vez por peça.
-        """
-        chamados = BIService._chamados(f).filter(status='concluido', data_conclusao__date__gte=ini, data_conclusao__date__lte=fim).values('pk')
-        usos = ChamadoRFB.pecas_utilizadas.through.objects.filter(chamadorfb__in=chamados)
-        if id_peca:
-            usos = usos.filter(peca_id=id_peca)
-        return usos.values_list('peca_id', 'peca__part_number', 'peca__descricao', 'chamadorfb__estado', 'chamadorfb__cidade',
-                                'chamadorfb__data_conclusao')
-
-    @staticmethod
-    def _previsao(faixas: list, total: int) -> dict:
-        """
-        Previsão de uso para um período do MESMO tamanho do escolhido, logo depois dele.
-        O período é dividido em 4 faixas iguais; com pelo menos 4 usos, a previsão segue a reta de tendência dessas faixas (nunca
-        abaixo de zero nem acima de 3x o período). Com menos que isso não há tendência confiável: a previsão repete o período.
-        """
-        n = len(faixas)
-        if total < 4:
-            return {'previsao': total, 'metodo': 'média', 'tendencia': 'estável'}
-        media_x, media_y = (n - 1) / 2, total / n
-        sxx = sum((x - media_x) ** 2 for x in range(n))
-        inclinacao = sum((x - media_x) * (faixas[x] - media_y) for x in range(n)) / sxx
-        base = media_y - inclinacao * media_x
-        previsao = round(min(max(sum(max(0.0, base + inclinacao * x) for x in range(n, 2 * n)), 0), total * 3))
-        tendencia = 'subindo' if previsao >= total * 1.15 else 'caindo' if previsao <= total * 0.85 else 'estável'
-        return {'previsao': previsao, 'metodo': 'tendência', 'tendencia': tendencia}
-
-    @staticmethod
-    def _pecas_utilizadas(f: Filtros, ini, fim, limite: int = 10) -> dict:
-        """Peças mais utilizadas no período, com previsão de uso, cobertura do estoque e a região que mais usa cada uma."""
-        dias = max(1, (fim - ini).days + 1)
-        pecas = {}
-        total_usos = 0
-        for id_peca, pn, descricao, estado, cidade, concluido in BIService._usos_de_pecas(f, ini, fim):
-            p = pecas.setdefault(id_peca, {'id_peca': id_peca, 'part_number': pn, 'descricao': descricao or '', 'usos': 0,
-                                           'faixas': [0, 0, 0, 0], 'ufs': Counter()})
-            dia = django_timezone.localtime(concluido).date()
-            p['faixas'][min(3, (dia - ini).days * 4 // dias)] += 1
-            p['usos'] += 1
-            p['ufs'][(estado or '').strip().upper()[:2] or 'N/I'] += 1
-            total_usos += 1
-
-        ranking = sorted(pecas.values(), key=lambda x: (-x['usos'], x['part_number']))[:limite]
-        saldos = dict(EstoquePeca.objects.filter(peca_id__in=[p['id_peca'] for p in ranking]).values_list('peca_id', 'saldo'))
-        itens = []
-        for p in ranking:
-            previsao = BIService._previsao(p['faixas'], p['usos'])
-            uf, usos_uf = p['ufs'].most_common(1)[0]
-            saldo = saldos.get(p['id_peca'])
-            media_dia = p['usos'] / dias
-            itens.append({
-                'id_peca': p['id_peca'], 'part_number': p['part_number'], 'descricao': p['descricao'], 'usos': p['usos'],
-                'pct': round(p['usos'] * 100 / total_usos, 1), 'media_dia': round(media_dia, 2), **previsao,
-                'saldo': saldo, 'cobertura_dias': round(saldo / media_dia) if saldo and saldo > 0 and media_dia else None,
-                'comprar': max(0, previsao['previsao'] - saldo) if saldo is not None else None,
-                'regiao_top': {'uf': uf, 'usos': usos_uf, 'pct': round(usos_uf * 100 / p['usos'], 1)}})
-        return {'periodo_dias': dias, 'total_usos': total_usos, 'total_pecas': len(pecas), 'itens': itens}
-
-    @staticmethod
-    def regioes_da_peca(f: Filtros, id_peca: int) -> dict:
-        """Onde uma peça foi usada no período do dashboard: por macrorregião, estado e cidade."""
-        peca = Peca.objects.get(pk=id_peca)
-        ini, fim = f.periodo()
-        estados, cidades, macro = Counter(), Counter(), Counter()
-        rotulos = {}
-        total = 0
-        for _, _, _, estado, cidade, _ in BIService._usos_de_pecas(f, ini, fim, id_peca):
-            uf = (estado or '').strip().upper()[:2] or 'N/I'
-            estados[uf] += 1
-            macro[MACRORREGIAO.get(uf, 'Não informado')] += 1
-            nome = ' '.join((cidade or '').split())
-            if nome:
-                chave = (uf, normalizar_texto(nome))
-                rotulos.setdefault(chave, nome)
-                cidades[chave] += 1
-            total += 1
-
-        def lista(contador, nome, limite=None, **extra):
-            itens = [{'nome': nome(k), 'usos': v, 'pct': round(v * 100 / total, 1), **{c: fn(k) for c, fn in extra.items()}}
-                     for k, v in contador.items()]
-            itens.sort(key=lambda x: (-x['usos'], x['nome']))
-            return itens[:limite] if limite else itens
-
-        return {'peca': {'id_peca': peca.id_peca, 'part_number': peca.part_number, 'descricao': peca.descricao or ''}, 'total': total,
-                'periodo': {'inicio': ini.isoformat(), 'fim': fim.isoformat()},
-                'macro': lista(macro, lambda k: k), 'estados': lista(estados, lambda k: k),
-                'cidades': lista(cidades, lambda k: rotulos[k], 10, uf=lambda k: k[0])}
-
-    @staticmethod
-    def _regioes(f: Filtros, ini, fim, limite: int = 10) -> dict:
-        """
-        Onde estão os chamados: por macrorregião, estado e cidade (as dez maiores), e região metropolitana x interior.
-        Conta o histórico inteiro (como o histórico por analista); "no período" recorta pelo período do dashboard.
-        """
-        def novo():
-            return {'total': 0, 'ativos': 0, 'atendidos': 0, 'estourados': 0, 'no_periodo': 0}
-
-        macro, estados, cidades, areas = defaultdict(novo), defaultdict(novo), defaultdict(novo), defaultdict(novo)
-        rotulo_cidade = {}
-        for estado, cidade, status, horas, metropolitana, aberto in BIService._chamados(f).values_list(
-                'estado', 'cidade', 'status', 'horas_consumidas', 'is_metropolitana', 'data_abertura'):
-            uf = (estado or '').strip().upper()[:2] or 'N/I'
-            nome_cidade = ' '.join((cidade or '').split())
-            ativo = status not in INATIVOS
-            estourado = ativo and _pct_sla(horas, metropolitana) > 100
-            no_periodo = ini <= django_timezone.localtime(aberto).date() <= fim
-            acumuladores = [macro[MACRORREGIAO.get(uf, 'Não informado')], estados[uf],
-                            areas['Região metropolitana' if metropolitana else 'Interior']]
-            if nome_cidade:
-                chave = (uf, normalizar_texto(nome_cidade))
-                rotulo_cidade.setdefault(chave, nome_cidade)          # "São Paulo", "sao paulo" e "SÃO PAULO" viram uma cidade só
-                acumuladores.append(cidades[chave])
-            for a in acumuladores:
-                a['total'] += 1
-                a['ativos'] += ativo
-                a['atendidos'] += status == 'concluido'
-                a['estourados'] += estourado
-                a['no_periodo'] += no_periodo
-
-        total_geral = sum(a['total'] for a in macro.values())
-
-        def lista(origem, nome, limite=None, extra=None):
-            itens = [{'nome': nome(k), **(extra(k) if extra else {}), **v,
-                      'pct': round(v['total'] * 100 / total_geral, 1) if total_geral else 0.0} for k, v in origem.items()]
-            itens.sort(key=lambda x: (-x['total'], x['nome']))
-            return itens[:limite] if limite else itens
-
-        return {
-            'total_geral': total_geral,
-            'areas': lista(areas, lambda k: k),
-            'macro': lista(macro, lambda k: k),
-            'estados': lista(estados, lambda k: k, limite),
-            'cidades': lista(cidades, lambda k: rotulo_cidade[k], limite, extra=lambda k: {'uf': k[0]}),
-            'total_estados': len(estados), 'total_cidades': len(cidades),
-        }
-
-    @staticmethod
-    def chamados_do_analista(f: Filtros, id_analista: int, situacao: str) -> dict:
-        """Os chamados de um analista (id 0 = sem analista): ativos, atendidos (concluídos), cancelados ou todos."""
-        qs = BIService._chamados(f)
-        qs = qs.filter(analista_responsavel_id=id_analista) if id_analista else qs.filter(analista_responsavel__isnull=True)
-        if situacao == 'ativos':
-            qs, ordem = qs.exclude(status__in=INATIVOS), ('-horas_consumidas', '-data_abertura')
-        elif situacao == 'atendidos':
-            qs, ordem = qs.filter(status='concluido'), ('-data_conclusao', '-data_abertura')
-        elif situacao == 'cancelados':
-            qs, ordem = qs.filter(status='cancelado'), ('-data_abertura',)
-        elif situacao == 'todos':
-            ordem = ('-data_abertura',)
-        else:
-            raise ValueError("Situação inválida.")
-        limite = 300
-        total = qs.count()
-        itens = [{
-            'id': c.id_chamado, 'ticket': c.ticket, 'estado': c.estado, 'cidade': c.cidade, 'modelo': c.modelo_equipamento,
-            'status': c.get_status_display(), 'ativo': c.status not in INATIVOS,
-            'aberto_em': c.data_abertura.isoformat() if c.data_abertura else None,
-            'concluido_em': c.data_conclusao.isoformat() if c.data_conclusao else None,
-            'pct': _pct_sla(c.horas_consumidas, c.is_metropolitana), 'sem_intervencao_tecnica': c.sem_intervencao_tecnica,
-            'resolucao': (c.resolucao_caso or '')[:140]} for c in qs.order_by(*ordem)[:limite]]
-        return {'total': total, 'itens': itens, 'limitado': total > limite}
 
     # ------------------------------------------------------------------ qualidade
     @staticmethod
@@ -718,10 +523,7 @@ class BIService:
         troca_indevida = {
             'taxa': _comparar(round(indevidas * 100 / informadas, 1) if informadas else None,
                               round(indevidas_ant * 100 / informadas_ant, 1) if informadas_ant else None, True),
-            'indevidas': indevidas, 'informadas': informadas,
-            'motivos': [{'nome': l['motivo_troca_indevida'] or '(sem motivo informado)', 'quantidade': l['n'],
-                         'pct': round(l['n'] * 100 / indevidas, 1)}
-                        for l in tri.filter(troca_indevida=True).values('motivo_troca_indevida').annotate(n=Count('id_triagem')).order_by('-n', 'motivo_troca_indevida')]}
+            'indevidas': indevidas, 'informadas': informadas}
         controle = BIService._controle_tecnicos(tri, funcionais, total)
 
         return {
