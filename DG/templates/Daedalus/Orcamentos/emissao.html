@@ -25,6 +25,18 @@
             </div>
         </section>
 
+        <section class="bg-[#1e293b] p-5 rounded-xl border border-[#334155]">
+            <h2 class="text-sm font-bold text-slate-100 mb-1">Copiar de um laudo anterior</h2>
+            <p class="text-[11px] text-slate-500 mb-3">Digite o número de um laudo já emitido: este laudo novo é preenchido com tudo o que havia nele (cliente, equipamento, motivo, análise e peças) e você ajusta o que precisar.</p>
+            <div class="flex flex-wrap items-center gap-3">
+                <input type="text" id="copia-numero" placeholder="Ex.: ORC-2026-0012" maxlength="30" class="w-56 bg-[#0f172a] border border-[#334155] rounded-lg py-2 px-3 text-sm text-slate-200 outline-none focus:border-cyan-500">
+                <button type="button" id="btn-copiar" class="px-4 py-2 rounded-lg text-xs font-semibold text-white bg-cyan-600 hover:bg-cyan-500">Copiar</button>
+                <label class="flex items-center gap-2 text-[11px] text-slate-400 cursor-pointer"><input type="checkbox" id="copia-atualizar" class="accent-cyan-500"> Atualizar os valores das peças com a cotação mais recente</label>
+            </div>
+        </section>
+
+        <div id="aviso-copia" class="hidden rounded-xl border border-cyan-500/30 bg-cyan-500/10 text-cyan-200 text-xs px-4 py-3"></div>
+
         <form id="form-laudo" class="flex flex-col gap-6" autocomplete="off">
             <section class="bg-[#1e293b] p-5 rounded-xl border border-[#334155]">
                 <h2 class="text-sm font-bold text-slate-100 mb-4">Dados do cliente</h2>
@@ -116,6 +128,7 @@
                     <button type="button" id="btn-alterar" class="hidden px-5 py-2.5 rounded-lg text-sm font-semibold text-white bg-cyan-600 hover:bg-cyan-500">Editar laudo</button>
                     <button type="button" id="btn-salvar-alt" class="hidden px-5 py-2.5 rounded-lg text-sm font-semibold text-white bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50">Salvar alterações</button>
                     <button type="button" id="btn-cancelar-alt" class="hidden px-5 py-2.5 rounded-lg text-sm font-semibold text-slate-200 bg-slate-700 hover:bg-slate-600">Cancelar edição</button>
+                    <a id="btn-criar-copia" href="#" class="hidden px-5 py-2.5 rounded-lg text-sm font-semibold text-cyan-300 bg-slate-800 hover:bg-slate-700">Criar cópia deste laudo</a>
                     <button type="button" id="btn-baixar" class="hidden px-5 py-2.5 rounded-lg text-sm font-semibold text-cyan-300 bg-slate-800 hover:bg-slate-700">Baixar Word</button>
                     <button type="button" id="btn-enviar-email" class="hidden px-5 py-2.5 rounded-lg text-sm font-semibold text-cyan-300 bg-slate-800 hover:bg-slate-700">Enviar por e-mail</button>
                     <span id="acoes-status" class="hidden flex gap-2">
